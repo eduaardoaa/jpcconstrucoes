@@ -288,6 +288,9 @@ class WhatsappWebhookController extends Controller
             if (!$contato->nome && !$contato->push_name) {
                 $this->buscarNomeGrupo($contato, $instancia);
             }
+            if (!$contato->foto_url) {
+                $this->buscarFotoContato($contato, $instancia);
+            }
 
         } elseif ($fromMe) {
             // Mensagem enviada por mim: só garante que o contato existe.
@@ -307,6 +310,9 @@ class WhatsappWebhookController extends Controller
             // Preenche lid_jid em contatos existentes que ainda não têm o mapeamento
             if ($lidOriginal && !$contato->lid_jid) {
                 $contato->update(['lid_jid' => $lidOriginal]);
+            }
+            if (!$contato->foto_url && $contato->wasRecentlyCreated) {
+                $this->buscarFotoContato($contato, $instancia);
             }
 
         } else {
@@ -330,6 +336,9 @@ class WhatsappWebhookController extends Controller
             // Auto-preenche nome da agenda na primeira vez que o contato não tem nome manual
             if (!$contato->nome) {
                 $this->tentarPreencherNomeAgenda($contato, $instancia);
+            }
+            if (!$contato->foto_url) {
+                $this->buscarFotoContato($contato, $instancia);
             }
         }
 
@@ -417,6 +426,28 @@ class WhatsappWebhookController extends Controller
             && $mensagem->anexos()->doesntExist()
         ) {
             $this->criarAnexoMensagem($mensagem, $data);
+        }
+
+        // Vincula reply_to_message_id quando a mensagem é uma resposta a outra
+        if (!$mensagem->reply_to_message_id) {
+            $msg      = $data['message'] ?? [];
+            // contextInfo pode estar em qualquer tipo de mensagem
+            $ctxInfo  = $msg['extendedTextMessage']['contextInfo']
+                     ?? $msg['imageMessage']['contextInfo']
+                     ?? $msg['videoMessage']['contextInfo']
+                     ?? $msg['audioMessage']['contextInfo']
+                     ?? $msg['documentMessage']['contextInfo']
+                     ?? $msg['stickerMessage']['contextInfo']
+                     ?? null;
+            $stanzaId = $ctxInfo['stanzaId'] ?? null;
+            if ($stanzaId) {
+                $replyMsg = WhatsappMensagem::where('whatsapp_instancia_id', $instancia->id)
+                    ->where('message_id', $stanzaId)
+                    ->first();
+                if ($replyMsg) {
+                    $mensagem->update(['reply_to_message_id' => $replyMsg->id]);
+                }
+            }
         }
 
         // Preview para a lista de conversas
@@ -799,5 +830,46 @@ class WhatsappWebhookController extends Controller
         } catch (\Throwable $e) {
             Log::warning("Falha ao buscar nome do grupo {$contato->remote_jid}: {$e->getMessage()}");
         }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // BUSCA FOTO DE PERFIL AUTOMATICAMENTE (contato ou grupo)
+    // ──────────────────────────────────────────────────────────────────────────
+    private function buscarFotoContato(WhatsappContato $contato, WhatsappInstancia $instancia): void
+    {
+        try {
+            $base    = rtrim($instancia->api_url, '/');
+            $inst    = $instancia->instance_name;
+            $headers = ['apikey' => $instancia->api_key];
+
+            if ($contato->is_grupo) {
+                // Foto de grupo
+                $r = Http::withHeaders($headers)->timeout(6)
+                    ->post("{$base}/group/fetchGroupInfo/{$inst}", ['groupJid' => $contato->remote_jid]);
+                if (!$r->successful()) {
+                    $r = Http::withHeaders($headers)->timeout(6)
+                        ->post("{$base}/group/findGroupInfos/{$inst}", ['groupJid' => $contato->remote_jid]);
+                }
+                if ($r->successful()) {
+                    $info = $r->json();
+                    if (isset($info[0])) $info = $info[0];
+                    $fotoUrl = $info['pictureUrl'] ?? $info['profilePictureUrl'] ?? null;
+                    if ($fotoUrl) {
+                        $contato->update(['foto_url' => $fotoUrl]);
+                    }
+                }
+            } else {
+                // Foto de contato individual
+                $r = Http::withHeaders($headers)->timeout(6)
+                    ->post("{$base}/chat/fetchProfile/{$inst}", ['number' => $contato->remote_jid]);
+                if ($r->successful()) {
+                    $data    = $r->json();
+                    $fotoUrl = $data['profilePictureUrl'] ?? $data['profilePicUrl'] ?? $data['picture'] ?? null;
+                    if ($fotoUrl) {
+                        $contato->update(['foto_url' => $fotoUrl]);
+                    }
+                }
+            }
+        } catch (\Throwable) { }
     }
 }

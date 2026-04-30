@@ -18,7 +18,16 @@
            class="wa-chat-tile {{ optional($conversaSelecionada)->id === $conversa->id ? 'active' : '' }}"
            data-nome="{{ strtolower($nome) }}">
             <div class="avatar {{ $isGrupo ? 'is-grupo' : '' }}">
-                @if($isGrupo) <i class="bi bi-people-fill"></i> @else {{ $inicial }} @endif
+                @if($isGrupo)
+                    <i class="bi bi-people-fill"></i>
+                @else
+                    {{ $inicial }}
+                @endif
+                @if($contato?->foto_url)
+                    <img src="{{ $contato->foto_url }}" alt=""
+                         style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"
+                         onerror="this.style.display='none'">
+                @endif
             </div>
             <div class="info">
                 <div class="top">

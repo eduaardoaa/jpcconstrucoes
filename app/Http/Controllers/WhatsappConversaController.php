@@ -93,14 +93,18 @@ class WhatsappConversaController extends Controller
         }
 
         if ($request->has('_ajax_whatsapp')) {
-            // Retorna apenas os dois divs necessários, sem o layout completo.
-            // Reduz a resposta de ~200KB para ~20KB e melhora o tempo de atualização.
-            return view('whatsapp.conversas._poll', compact(
-                'instanciaSelecionada',
-                'conversas',
-                'conversaSelecionada',
-                'mensagens'
-            ));
+            return response(
+                view('whatsapp.conversas._poll', compact(
+                    'instanciaSelecionada',
+                    'conversas',
+                    'conversaSelecionada',
+                    'mensagens'
+                ))->render()
+            )->withHeaders([
+                'Cache-Control' => 'no-store, no-cache, must-revalidate',
+                'Pragma'        => 'no-cache',
+                'Expires'       => '0',
+            ]);
         }
 
         return view('whatsapp.conversas.index', compact(
@@ -373,36 +377,38 @@ class WhatsappConversaController extends Controller
 
         $numero = $this->resolverNumeroParaEnvio($contato, $instancia);
 
-        $corpoMedia = [
-            'number'    => $numero,
-            'mediatype' => $tipo,
-            'mimetype'  => $mime,
-            'media'     => $base64,
-            'fileName'  => $nomeArquivo,
-        ];
-        // caption só entra se tiver conteúdo — Evolution API rejeita null/não-string
-        if ($legendaEnvio !== '') {
-            $corpoMedia['caption'] = $legendaEnvio;
-        }
+        $apiBase = rtrim($instancia->api_url, '/');
+        $apiHeaders = ['apikey' => $instancia->api_key, 'Content-Type' => 'application/json'];
 
-        // Gravações de voz do browser:
-        //   - OGG (Firefox): WhatsApp aceita como nota de voz → envia com ptt=true
-        //   - WebM (Chrome): WhatsApp só aceita PTT em OGG/Opus. Enviar WebM com
-        //     ptt=true faz a Evolution API retornar 200 mas a mensagem nunca chega.
-        //     Enviamos como áudio normal (sem ptt), que chega e é reproduzível.
-        if ($tipo === 'audio' && $request->boolean('ptt')) {
-            if (str_contains($mime, 'ogg')) {
-                $corpoMedia['ptt'] = true;
+        // Áudio usa endpoint dedicado com encoding:true para que a Evolution API
+        // transcodifique qualquer formato (WAV, WebM, OGG) para OGG/Opus antes de enviar.
+        if ($tipo === 'audio') {
+            $corpoAudio = [
+                'number'   => $numero,
+                'audio'    => $base64,
+                'encoding' => true,
+            ];
+            if ($request->boolean('ptt')) {
+                $corpoAudio['ptt'] = true;
             }
-            // WebM: sem ptt — chega no WhatsApp como mensagem de áudio normal
+            $response = Http::withHeaders($apiHeaders)
+                ->timeout(60)
+                ->post("{$apiBase}/message/sendWhatsAppAudio/{$instancia->instance_name}", $corpoAudio);
+        } else {
+            $corpoMedia = [
+                'number'    => $numero,
+                'mediatype' => $tipo,
+                'mimetype'  => $mime,
+                'media'     => $base64,
+                'fileName'  => $nomeArquivo,
+            ];
+            if ($legendaEnvio !== '') {
+                $corpoMedia['caption'] = $legendaEnvio;
+            }
+            $response = Http::withHeaders($apiHeaders)
+                ->timeout(60)
+                ->post("{$apiBase}/message/sendMedia/{$instancia->instance_name}", $corpoMedia);
         }
-
-        $response = Http::withHeaders([
-                'apikey' => $instancia->api_key,
-                'Content-Type' => 'application/json',
-            ])
-            ->timeout(60)
-            ->post(rtrim($instancia->api_url, '/') . '/message/sendMedia/' . $instancia->instance_name, $corpoMedia);
 
         if (!$response->successful()) {
             Log::error('Erro ao enviar mídia WhatsApp', [
@@ -676,7 +682,7 @@ class WhatsappConversaController extends Controller
         try {
             $resp = Http::withHeaders(['apikey' => $instancia->api_key])
                 ->timeout(30)
-                ->get(rtrim($instancia->api_url, '/') . '/contacts/fetch/' . $instancia->instance_name);
+                ->post(rtrim($instancia->api_url, '/') . '/contacts/fetch/' . $instancia->instance_name, []);
 
             if (!$resp->successful()) {
                 return response()->json(['error' => 'Falha na Evolution API: ' . $resp->body()], 422);
@@ -692,6 +698,7 @@ class WhatsappConversaController extends Controller
                 $jid      = $c['remoteJid'] ?? $c['jid'] ?? $c['id'] ?? null;
                 $pushName = $c['pushName'] ?? null;
                 $nome     = $c['name'] ?? $c['verifiedName'] ?? null;
+                $fotoUrl  = $c['profilePictureUrl'] ?? $c['profilePicUrl'] ?? $c['picture'] ?? null;
 
                 if (!$jid || str_contains($jid, '@g.us') || str_contains($jid, '@lid')) continue;
 
@@ -709,13 +716,95 @@ class WhatsappConversaController extends Controller
 
                 $update = [];
                 if ($pushName) $update['push_name'] = $pushName;
-                // Só preenche nome da agenda se o usuário ainda não definiu um nome manual
                 if ($nome && !$contato->nome) $update['nome'] = $nome;
+                if ($fotoUrl) $update['foto_url'] = $fotoUrl;
 
                 if ($update) {
                     $contato->update($update);
                     $atualizados++;
                 }
+            }
+
+            return response()->json(['success' => true, 'atualizados' => $atualizados]);
+        } catch (\Throwable $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function sincronizarFotos(WhatsappInstancia $instancia)
+    {
+        $usuario = auth()->user();
+        if (!$usuario->isAdmin()) {
+            $temAcesso = $usuario->whatsappInstancias()
+                ->where('whatsapp_instancias.id', $instancia->id)->exists();
+            abort_unless($temAcesso, 403);
+        }
+
+        try {
+            $base    = rtrim($instancia->api_url, '/');
+            $inst    = $instancia->instance_name;
+            $headers = ['apikey' => $instancia->api_key];
+            $atualizados = 0;
+
+            // 1ª passagem: tenta obter fotos em lote via /contacts/fetch
+            $resp = Http::withHeaders($headers)->timeout(30)
+                ->post("{$base}/contacts/fetch/{$inst}", []);
+            if ($resp->successful() && is_array($resp->json())) {
+                foreach ($resp->json() as $c) {
+                    $jid     = $c['remoteJid'] ?? $c['jid'] ?? $c['id'] ?? null;
+                    $fotoUrl = $c['profilePictureUrl'] ?? $c['profilePicUrl'] ?? $c['picture'] ?? null;
+                    if (!$jid || !$fotoUrl) continue;
+
+                    WhatsappContato::where('whatsapp_instancia_id', $instancia->id)
+                        ->where('remote_jid', $jid)
+                        ->update(['foto_url' => $fotoUrl]);
+                    $atualizados++;
+                }
+            }
+
+            // 2ª passagem: busca individualmente os que ainda não têm foto
+            $semFoto = WhatsappContato::where('whatsapp_instancia_id', $instancia->id)
+                ->whereNull('foto_url')
+                ->where('is_grupo', false)
+                ->where('remote_jid', 'not like', '%@lid%')
+                ->limit(80)
+                ->get();
+
+            foreach ($semFoto as $contato) {
+                try {
+                    $r = Http::withHeaders($headers)->timeout(6)
+                        ->post("{$base}/chat/fetchProfile/{$inst}", ['number' => $contato->remote_jid]);
+                    if ($r->successful()) {
+                        $data    = $r->json();
+                        $fotoUrl = $data['profilePictureUrl'] ?? $data['profilePicUrl'] ?? $data['picture'] ?? null;
+                        if ($fotoUrl) {
+                            $contato->update(['foto_url' => $fotoUrl]);
+                            $atualizados++;
+                        }
+                    }
+                } catch (\Throwable) {}
+            }
+
+            // Tenta também fotos de grupos via /group/fetchGroupInfo
+            $grupos = WhatsappContato::where('whatsapp_instancia_id', $instancia->id)
+                ->where('is_grupo', true)
+                ->whereNull('foto_url')
+                ->limit(20)
+                ->get();
+
+            foreach ($grupos as $grupo) {
+                try {
+                    $r = Http::withHeaders($headers)->timeout(6)
+                        ->post("{$base}/group/fetchGroupInfo/{$inst}", ['groupJid' => $grupo->remote_jid]);
+                    if ($r->successful()) {
+                        $data    = $r->json();
+                        $fotoUrl = $data['pictureUrl'] ?? $data['profilePictureUrl'] ?? null;
+                        if ($fotoUrl) {
+                            $grupo->update(['foto_url' => $fotoUrl]);
+                            $atualizados++;
+                        }
+                    }
+                } catch (\Throwable) {}
             }
 
             return response()->json(['success' => true, 'atualizados' => $atualizados]);

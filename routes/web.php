@@ -306,6 +306,9 @@ Route::prefix('whatsapp')->name('whatsapp.')->middleware('auth')->group(function
     Route::post('/instancias/{instancia}/sincronizar-nomes', [WhatsappConversaController::class, 'sincronizarNomes'])
         ->name('instancias.sincronizar-nomes');
 
+    Route::post('/instancias/{instancia}/sincronizar-fotos', [WhatsappConversaController::class, 'sincronizarFotos'])
+        ->name('instancias.sincronizar-fotos');
+
     Route::post('/conversas/nova', [WhatsappConversaController::class, 'novaConversa'])
         ->name('conversas.nova');
 

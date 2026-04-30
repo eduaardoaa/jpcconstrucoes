@@ -155,6 +155,8 @@ height: calc(100vh - 125px);    display: flex;
         flex-shrink: 0;
         font-size: 18px;
         text-transform: uppercase;
+        position: relative;
+        overflow: hidden;
     }
 
     .wa-chat-tile .avatar.is-grupo {
@@ -233,6 +235,8 @@ height: calc(100vh - 125px);    display: flex;
         font-weight: 600;
         font-size: 16px;
         flex-shrink: 0;
+        position: relative;
+        overflow: hidden;
     }
 
     .wa-contact-wrapper .avatar.is-grupo {
@@ -758,15 +762,6 @@ height: calc(100vh - 125px);    display: flex;
                         @endforelse
                     </select>
                 </form>
-                @if($instanciaSelecionada)
-                <button id="syncNomesBtn"
-                    title="Sincronizar nomes dos contatos da agenda"
-                    style="background:#2a3942;border:1px solid #3b4a54;color:var(--wa-text-muted);padding:6px 10px;border-radius:8px;cursor:pointer;font-size:13px;white-space:nowrap;flex-shrink:0"
-                    data-url="{{ route('whatsapp.instancias.sincronizar-nomes', $instanciaSelecionada) }}"
-                    data-token="{{ csrf_token() }}">
-                    <i class="bi bi-person-lines-fill"></i>
-                </button>
-                @endif
             </div>
         </header>
 
@@ -790,7 +785,16 @@ height: calc(100vh - 125px);    display: flex;
                    class="wa-chat-tile {{ optional($conversaSelecionada)->id === $conversa->id ? 'active' : '' }}"
                    data-nome="{{ strtolower($nome) }}">
                     <div class="avatar {{ $isGrupo ? 'is-grupo' : '' }}">
-                        @if($isGrupo) <i class="bi bi-people-fill"></i> @else {{ $inicial }} @endif
+                        @if($isGrupo)
+                            <i class="bi bi-people-fill"></i>
+                        @else
+                            {{ $inicial }}
+                        @endif
+                        @if($contato?->foto_url)
+                            <img src="{{ $contato->foto_url }}" alt=""
+                                 style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"
+                                 onerror="this.style.display='none'">
+                        @endif
                     </div>
                     <div class="info">
                         <div class="top">
@@ -856,6 +860,11 @@ height: calc(100vh - 125px);    display: flex;
                             <i class="bi bi-people-fill"></i>
                         @else
                             {{ mb_substr($nomeAtual, 0, 1) }}
+                        @endif
+                        @if($contatoAtual?->foto_url)
+                            <img src="{{ $contatoAtual->foto_url }}" alt=""
+                                 style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"
+                                 onerror="this.style.display='none'">
                         @endif
                     </div>
                     <div>
@@ -1219,39 +1228,6 @@ document.addEventListener('DOMContentLoaded', function () {
         if (data && data.error != null) return data.error || 'Erro interno no servidor.';
         if (data && data.message) return data.message;
         return fallback + ` (HTTP ${response.status})`;
-    }
-
-    // ===== SINCRONIZAR NOMES =====
-    const syncNomesBtn = document.getElementById('syncNomesBtn');
-    if (syncNomesBtn) {
-        syncNomesBtn.addEventListener('click', async function () {
-            const url   = this.dataset.url;
-            const token = this.dataset.token;
-            this.disabled = true;
-            this.innerHTML = '<i class="bi bi-arrow-repeat" style="animation:spin 1s linear infinite"></i>';
-
-            const fd = new FormData();
-            fd.append('_token', token);
-            try {
-                const resp = await fetch(url, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-                const data = await parseJsonSafe(resp);
-                if (resp.ok && data?.success) {
-                    this.innerHTML = '<i class="bi bi-check2" style="color:var(--wa-green)"></i>';
-                    this.title = `${data.atualizados} nomes atualizados`;
-                    setTimeout(() => {
-                        this.innerHTML = '<i class="bi bi-person-lines-fill"></i>';
-                        this.title = 'Sincronizar nomes dos contatos da agenda';
-                    }, 3000);
-                } else {
-                    this.innerHTML = '<i class="bi bi-person-lines-fill"></i>';
-                    alert('⚠️ ' + (data?.error || 'Falha ao sincronizar nomes.'));
-                }
-            } catch (err) {
-                this.innerHTML = '<i class="bi bi-person-lines-fill"></i>';
-            } finally {
-                this.disabled = false;
-            }
-        });
     }
 
     // ===== MODAL RENOMEAR CONTATO =====
@@ -1890,7 +1866,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // ===== POLLING AUTOMÁTICO (mensagens + lista) =====
     let atualizando = false;
-    let ultimoHash  = '';
 
     async function atualizarMensagens(force = false) {
         if (atualizando && !force) return;
@@ -1899,17 +1874,18 @@ document.addEventListener('DOMContentLoaded', function () {
         try {
             const url = new URL(window.location.href);
             url.searchParams.set('_ajax_whatsapp', '1');
+            url.searchParams.set('_nc', Date.now());
 
-            const resp = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+            const resp = await fetch(url, {
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache'
+                }
+            });
             if (!resp.ok) return;
 
             const html = await resp.text();
-
-            // Hash simples para evitar re-render desnecessário
-            const hash = html.length + '_' + html.slice(-200);
-            if (!force && hash === ultimoHash) return;
-            ultimoHash = hash;
-
             const doc = new DOMParser().parseFromString(html, 'text/html');
 
             // Atualiza área de mensagens
@@ -1937,8 +1913,8 @@ document.addEventListener('DOMContentLoaded', function () {
     // Rola para o final ao carregar
     scrollBottom(true);
 
-    // Polling a cada 1 segundo
-    setInterval(atualizarMensagens, 1000);
+    // Polling a cada 500ms
+    setInterval(atualizarMensagens, 500);
 });
 </script>
 @endsection
