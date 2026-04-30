@@ -62,10 +62,15 @@ class WhatsappConversaController extends Controller
             }
 
             if ($conversaSelecionada) {
+                // Carrega as últimas 100 mensagens em ordem decrescente e inverte para exibição.
+                // Limitar evita carregar históricos enormes a cada poll de 1 segundo.
                 $mensagens = $conversaSelecionada->mensagens()
                     ->with(['usuario', 'anexos', 'replyTo.usuario'])
-                    ->orderBy('created_at')
-                    ->get();
+                    ->orderByDesc('created_at')
+                    ->limit(100)
+                    ->get()
+                    ->reverse()
+                    ->values();
             }
 
             // Ao abrir a conversa (não no polling AJAX): zera badge e marca como lida no WhatsApp
@@ -88,8 +93,9 @@ class WhatsappConversaController extends Controller
         }
 
         if ($request->has('_ajax_whatsapp')) {
-            return view('whatsapp.conversas.index', compact(
-                'instanciasUsuario',
+            // Retorna apenas os dois divs necessários, sem o layout completo.
+            // Reduz a resposta de ~200KB para ~20KB e melhora o tempo de atualização.
+            return view('whatsapp.conversas._poll', compact(
                 'instanciaSelecionada',
                 'conversas',
                 'conversaSelecionada',
@@ -152,8 +158,12 @@ class WhatsappConversaController extends Controller
                                 $key['remoteJid'] = $jidReal;
                             }
                         }
-                        // Remove campos extras que o endpoint sendText não espera
                         unset($key['participant']);
+
+                        // Remove metadados de encriptação — a Evolution API não aceita
+                        // messageContextInfo no quoted e corrompe o payload da citação
+                        unset($msg['messageContextInfo']);
+
                         $quoted = ['key' => $key, 'message' => $msg];
                         Log::info('enviarTexto: quoted montado', ['quoted' => $quoted]);
                     }
@@ -333,11 +343,24 @@ class WhatsappConversaController extends Controller
         $contato = $conversa->contato;
 
         $arquivo = $request->file('arquivo');
-        $mime = $arquivo->getMimeType();
+
+        // PHP finfo detecta áudio WebM (gravado pelo browser Chrome como audio/webm;codecs=opus)
+        // como video/webm, pois WebM é um container de vídeo. Quando o cliente declara áudio
+        // mas o servidor detecta video/webm, confiamos no MIME do cliente.
+        $serverMime = $arquivo->getMimeType() ?? '';
+        $clientMime = $arquivo->getClientMimeType() ?? '';
+        if (str_starts_with($clientMime, 'audio/') && str_starts_with($serverMime, 'video/')) {
+            $mime = $clientMime;
+        } else {
+            $mime = $serverMime ?: $clientMime;
+        }
+
         $nomeArquivo = $arquivo->getClientOriginalName();
         $base64 = base64_encode(file_get_contents($arquivo->getRealPath()));
 
-        $tipo = $this->tipoMidiaPorMime($mime);
+        $tipo   = $this->tipoMidiaPorMime($mime);  // 'audio','image','video','document' — para Evolution API
+        $tipoBd = $this->tipoMidiaBd($tipo);        // 'audio','imagem','video','documento' — para o banco
+
         $legendaOriginal = trim((string) $request->get('legenda'));
 
         $legendaEnvio = $legendaOriginal;
@@ -350,19 +373,36 @@ class WhatsappConversaController extends Controller
 
         $numero = $this->resolverNumeroParaEnvio($contato, $instancia);
 
+        $corpoMedia = [
+            'number'    => $numero,
+            'mediatype' => $tipo,
+            'mimetype'  => $mime,
+            'media'     => $base64,
+            'fileName'  => $nomeArquivo,
+        ];
+        // caption só entra se tiver conteúdo — Evolution API rejeita null/não-string
+        if ($legendaEnvio !== '') {
+            $corpoMedia['caption'] = $legendaEnvio;
+        }
+
+        // Gravações de voz do browser:
+        //   - OGG (Firefox): WhatsApp aceita como nota de voz → envia com ptt=true
+        //   - WebM (Chrome): WhatsApp só aceita PTT em OGG/Opus. Enviar WebM com
+        //     ptt=true faz a Evolution API retornar 200 mas a mensagem nunca chega.
+        //     Enviamos como áudio normal (sem ptt), que chega e é reproduzível.
+        if ($tipo === 'audio' && $request->boolean('ptt')) {
+            if (str_contains($mime, 'ogg')) {
+                $corpoMedia['ptt'] = true;
+            }
+            // WebM: sem ptt — chega no WhatsApp como mensagem de áudio normal
+        }
+
         $response = Http::withHeaders([
                 'apikey' => $instancia->api_key,
                 'Content-Type' => 'application/json',
             ])
             ->timeout(60)
-            ->post(rtrim($instancia->api_url, '/') . '/message/sendMedia/' . $instancia->instance_name, [
-                'number' => $numero,
-                'mediatype' => $tipo,
-                'mimetype' => $mime,
-                'caption' => $legendaEnvio,
-                'media' => $base64,
-                'fileName' => $nomeArquivo,
-            ]);
+            ->post(rtrim($instancia->api_url, '/') . '/message/sendMedia/' . $instancia->instance_name, $corpoMedia);
 
         if (!$response->successful()) {
             Log::error('Erro ao enviar mídia WhatsApp', [
@@ -386,8 +426,8 @@ class WhatsappConversaController extends Controller
             'user_id'               => $usuario->id,
             'message_id'            => data_get($payload, 'key.id') ?? data_get($payload, 'message.key.id') ?? 'LOCAL-' . Str::uuid(),
             'direcao'               => 'saida',
-            'tipo'                  => $tipo,
-            'conteudo'              => $legendaOriginal ?: strtoupper($tipo),
+            'tipo'                  => $tipoBd,
+            'conteudo'              => $legendaOriginal ?: null,
             'payload'               => $payload,
             'status_envio'          => 'enviada',
         ]);
@@ -407,9 +447,17 @@ class WhatsappConversaController extends Controller
             Log::warning('Falha ao salvar cópia local da mídia enviada', ['erro' => $e->getMessage()]);
         }
 
+        $previewMidia = match ($tipoBd) {
+            'audio'    => '🎤 Áudio',
+            'imagem'   => '📷 Imagem',
+            'video'    => '🎥 Vídeo',
+            'documento'=> '📄 Documento',
+            default    => '📎 Arquivo',
+        };
+
         $conversa->update([
             'atendente_id'            => $conversa->atendente_id ?: $usuario->id,
-            'ultima_mensagem_preview' => $legendaOriginal ?: strtoupper($tipo),
+            'ultima_mensagem_preview' => $legendaOriginal ?: $previewMidia,
             'ultima_mensagem_em'      => now(),
         ]);
 
@@ -928,5 +976,16 @@ class WhatsappConversaController extends Controller
         }
 
         return 'document';
+    }
+
+    // Converte o tipo da Evolution API (inglês) para o tipo salvo no banco (português),
+    // alinhando com os valores usados pelo WhatsappWebhookController.
+    private function tipoMidiaBd(string $tipoApi): string
+    {
+        return match ($tipoApi) {
+            'image'    => 'imagem',
+            'document' => 'documento',
+            default    => $tipoApi, // 'audio' e 'video' são iguais nos dois idiomas
+        };
     }
 }

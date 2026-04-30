@@ -1030,14 +1030,16 @@ height: calc(100vh - 125px);    display: flex;
                                         $midiaUrl = route('whatsapp.conversas.midia', $mensagem);
                                     @endphp
                                     <div class="wa-msg-media">
-                                        @if(in_array($ext, ['jpg','jpeg','png','webp','gif']))
+                                        @if(in_array($ext, ['jpg','jpeg','png','webp','gif']) || $mensagem->tipo === 'imagem')
                                             <img src="{{ $midiaUrl }}" loading="lazy"
                                                  onclick="window.open(this.src)" alt="{{ $anexo->nome_arquivo }}">
-                                        @elseif(in_array($ext, ['mp4','webm','mov','3gp']))
-                                            <video src="{{ $midiaUrl }}" controls preload="metadata"></video>
-                                        @elseif(in_array($ext, ['mp3','wav','ogg','m4a','opus','webm']) || $mensagem->tipo === 'audio')
+                                        @elseif($mensagem->tipo === 'audio' || in_array($ext, ['mp3','wav','ogg','m4a','opus']))
+                                            {{-- Checamos o tipo antes da extensão: .webm de áudio gravado no browser
+                                                 seria erroneamente renderizado como <video> se verificarmos a extensão primeiro --}}
                                             <audio src="{{ $midiaUrl }}" controls preload="none"
                                                    style="min-width:220px"></audio>
+                                        @elseif(in_array($ext, ['mp4','webm','mov','3gp']) || $mensagem->tipo === 'video')
+                                            <video src="{{ $midiaUrl }}" controls preload="metadata"></video>
                                         @else
                                             <a href="{{ $midiaUrl }}" target="_blank" class="wa-doc-link">
                                                 <i class="bi bi-file-earmark-arrow-down"></i>
@@ -1703,10 +1705,11 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // ===== ENVIAR ARQUIVO =====
-    async function enviarArquivo(file) {
+    async function enviarArquivo(file, opts = {}) {
         const formData = new FormData();
         formData.append('arquivo', file);
         formData.append('_token', '{{ csrf_token() }}');
+        if (opts.ptt) formData.append('ptt', '1');
 
         // Feedback visual
         const msgsBox = document.getElementById('waMessages');
@@ -1757,6 +1760,58 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    // ===== CONVERSÃO WebM → WAV (compatibilidade WhatsApp sem FFmpeg no servidor) =====
+    // Chrome grava em WebM/Opus. Baileys/Evolution API não entrega WebM sem FFmpeg.
+    // WAV (PCM) não precisa de conversão no servidor e é aceito pelo WhatsApp.
+    async function audioParaWav(blob) {
+        const arrayBuffer = await blob.arrayBuffer();
+        const audioCtx = new AudioContext();
+        let audioBuffer;
+        try {
+            audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+        } finally {
+            await audioCtx.close();
+        }
+
+        const sampleRate = audioBuffer.sampleRate;
+        const length = audioBuffer.length;
+
+        // Mixdown para mono (voz não precisa de stereo; reduz tamanho pela metade)
+        const mono = new Float32Array(length);
+        for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
+            const src = audioBuffer.getChannelData(ch);
+            for (let i = 0; i < length; i++) mono[i] += src[i];
+        }
+        if (audioBuffer.numberOfChannels > 1) {
+            for (let i = 0; i < length; i++) mono[i] /= audioBuffer.numberOfChannels;
+        }
+
+        const byteCount = length * 2; // PCM 16-bit = 2 bytes/amostra
+        const buf = new ArrayBuffer(44 + byteCount);
+        const v = new DataView(buf);
+        const w = (off, s) => { for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i)); };
+
+        w(0, 'RIFF'); v.setUint32(4, 36 + byteCount, true);
+        w(8, 'WAVE'); w(12, 'fmt ');
+        v.setUint32(16, 16, true);
+        v.setUint16(20, 1, true);              // PCM
+        v.setUint16(22, 1, true);              // mono
+        v.setUint32(24, sampleRate, true);
+        v.setUint32(28, sampleRate * 2, true); // byte rate
+        v.setUint16(32, 2, true);              // block align
+        v.setUint16(34, 16, true);             // 16-bit
+        w(36, 'data'); v.setUint32(40, byteCount, true);
+
+        let off = 44;
+        for (let i = 0; i < length; i++) {
+            const s = Math.max(-1, Math.min(1, mono[i]));
+            v.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+            off += 2;
+        }
+
+        return new Blob([buf], { type: 'audio/wav' });
+    }
+
     // ===== GRAVAÇÃO DE ÁUDIO =====
     let mediaRecorder, audioChunks = [], recordInterval, secondsElapsed = 0;
     const recordingUI  = document.getElementById('recordingUI');
@@ -1768,20 +1823,30 @@ document.addEventListener('DOMContentLoaded', function () {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-            // Detecta o melhor formato suportado pelo browser
-            const mimeType = ['audio/ogg;codecs=opus', 'audio/webm;codecs=opus', 'audio/mp4', 'audio/webm']
+            // Preferência: OGG/Opus (Firefox, funciona como PTT), depois WebM (Chrome)
+            const mimeType = ['audio/ogg;codecs=opus', 'audio/ogg', 'audio/webm;codecs=opus', 'audio/webm']
                 .find(m => MediaRecorder.isTypeSupported(m)) || '';
 
             mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
             audioChunks = [];
             mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-            mediaRecorder.onstop = () => {
+            mediaRecorder.onstop = async () => {
                 const actualMime = mediaRecorder.mimeType || mimeType || 'audio/ogg';
-                const ext = actualMime.includes('webm') ? 'webm'
-                          : actualMime.includes('mp4')  ? 'm4a'
-                          : 'ogg';
-                const blob = new Blob(audioChunks, { type: actualMime });
-                enviarArquivo(new File([blob], 'audio_' + Date.now() + '.' + ext, { type: actualMime }));
+                const rawBlob = new Blob(audioChunks, { type: actualMime });
+
+                if (actualMime.includes('ogg')) {
+                    // OGG/Opus (Firefox): envia como nota de voz PTT
+                    enviarArquivo(new File([rawBlob], 'audio_' + Date.now() + '.ogg', { type: actualMime }), { ptt: true });
+                } else {
+                    // WebM (Chrome): converte para WAV — WhatsApp não entrega WebM sem FFmpeg no servidor
+                    try {
+                        const wavBlob = await audioParaWav(rawBlob);
+                        enviarArquivo(new File([wavBlob], 'audio_' + Date.now() + '.wav', { type: 'audio/wav' }));
+                    } catch (convErr) {
+                        console.warn('Conversão WAV falhou, enviando WebM:', convErr);
+                        enviarArquivo(new File([rawBlob], 'audio_' + Date.now() + '.webm', { type: actualMime }));
+                    }
+                }
                 stream.getTracks().forEach(t => t.stop());
             };
             mediaRecorder.start();

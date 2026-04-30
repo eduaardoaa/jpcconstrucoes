@@ -641,8 +641,7 @@
 </style>
 
     @php
-        $veiculo = $user->veiculo;
-        $temVeiculoAtivo = $veiculo && $veiculo->status === 'ativo';
+    $temVeiculoAtivo = $veiculos->isNotEmpty();
         $pendentes = $solicitacoes->where('status', 'pendente')->count();
         $aprovadas = $solicitacoes->where('status', 'aprovada')->count() + $solicitacoes->where('status', 'ajustada')->count();
         $reprovadas = $solicitacoes->where('status', 'reprovada')->count();
@@ -680,10 +679,10 @@
     @endif
 
     @if (!$temVeiculoAtivo)
-        <div class="alert-custom alert-warning-custom">
-            Você possui acesso a esta área, mas ainda não tem um veículo ativo vinculado. Solicite ao administrador o vínculo de um veículo para poder enviar solicitações.
-        </div>
-    @endif
+    <div class="alert-custom alert-warning-custom">
+        Nenhum veículo ativo cadastrado. Cadastre ou ative um veículo para enviar solicitações.
+    </div>
+@endif
 
     @if ($errors->any())
         <div class="alert-custom alert-danger-custom">
@@ -695,36 +694,26 @@
             </ul>
         </div>
     @endif
-
-    <div class="grid-top">
-        <div class="dark-card">
-            <div class="dark-card-header">
-                <h3>Veículo vinculado</h3>
-                <p>Esse veículo será usado em todas as suas solicitações.</p>
-            </div>
-            <div class="dark-card-body">
-                <div class="vehicle-box">
-                    <div class="vehicle-highlight">
-                        <strong>{{ $veiculo->placa ?? 'SEM VEÍCULO VINCULADO' }}</strong>
-                        <span>
-                            {{ $veiculo ? trim(($veiculo->marca ?? '') . ' ' . ($veiculo->modelo ?? '')) : 'Solicite o vínculo de um veículo ao administrador.' }}
-                            @if (!empty($veiculo?->ano))
-                                • {{ $veiculo->ano }}
-                            @endif
-                        </span>
-                        <span>
-                            COMBUSTÍVEL: {{ $veiculo ? strtoupper($veiculo->tipo_combustivel ?? '—') : '—' }}
-                            @if(isset($veiculo?->km_atual))
-                                • KM ATUAL CADASTRADO: {{ number_format((float) $veiculo->km_atual, 1, ',', '.') }}
-                            @endif
-                        </span>
-                        <span>
-                            STATUS: {{ $veiculo ? strtoupper($veiculo->status ?? '—') : '—' }}
-                        </span>
-                    </div>
-                </div>
+<div class="grid-top">
+    <div class="dark-card">
+    <div class="dark-card-header">
+        <h3>Veículos disponíveis</h3>
+        <p>Escolha o veículo no momento de abrir uma nova solicitação.</p>
+    </div>
+    <div class="dark-card-body">
+        <div class="vehicle-box">
+            <div class="vehicle-highlight">
+                <strong>{{ $veiculos->count() }} veículo(s) ativo(s)</strong>
+                <span>
+                    A solicitação não depende mais de veículo vinculado ao usuário.
+                </span>
+                <span>
+                    Selecione o veículo desejado dentro do formulário.
+                </span>
             </div>
         </div>
+    </div>
+</div>
 
         <div class="dark-card">
             <div class="dark-card-header">
@@ -754,9 +743,9 @@
                         <span class="mini-stat-value">{{ $user->name }}</span>
                     </div>
                     <div class="mini-stat">
-                        <span class="mini-stat-label">Status do veículo</span>
-                        <span class="mini-stat-value">{{ $veiculo ? strtoupper($veiculo->status ?? '—') : 'SEM VÍNCULO' }}</span>
-                    </div>
+    <span class="mini-stat-label">Veículos ativos</span>
+    <span class="mini-stat-value">{{ $veiculos->count() }}</span>
+</div>
                 </div>
             </div>
         </div>
@@ -781,6 +770,7 @@
                             <thead>
                                 <tr>
                                     <th>Data</th>
+                                    <th>Veículo</th>
                                     <th>KM</th>
                                     <th>Painel</th>
                                     <th>Tipo</th>
@@ -795,8 +785,21 @@
                             <tbody>
                                 @foreach ($solicitacoes as $solicitacao)
                                     <tr>
-                                        <td>{{ optional($solicitacao->data_solicitacao)->format('d/m/Y') }}</td>
-                                        <td>{{ number_format((float) $solicitacao->km_informado, 1, ',', '.') }}</td>
+                                        <tr>
+    <td>{{ optional($solicitacao->data_solicitacao)->format('d/m/Y') }}</td>
+
+    <td>
+        @if ($solicitacao->veiculo)
+            <strong>{{ $solicitacao->veiculo->placa }}</strong><br>
+            <span style="color:#94a3b8; font-size:.82rem;">
+                {{ trim(($solicitacao->veiculo->marca ?? '') . ' ' . ($solicitacao->veiculo->modelo ?? '')) }}
+            </span>
+        @else
+            —
+        @endif
+    </td>
+
+    <td>{{ number_format((float) $solicitacao->km_informado, 1, ',', '.') }}</td>
                                         <td>
                                             @if ($solicitacao->foto_painel)
                                                 <a href="{{ asset('storage/' . $solicitacao->foto_painel) }}" target="_blank">
@@ -877,6 +880,18 @@
                                     </span>
                                 </div>
                             </div>
+                            <div>
+    <span class="mobile-label">Veículo</span>
+    <span class="mobile-value">
+        @if ($solicitacao->veiculo)
+            {{ $solicitacao->veiculo->placa }}
+            —
+            {{ trim(($solicitacao->veiculo->marca ?? '') . ' ' . ($solicitacao->veiculo->modelo ?? '')) }}
+        @else
+            —
+        @endif
+    </span>
+</div>
 
                             <div class="mobile-row">
                                 <div>
@@ -994,6 +1009,28 @@
                     <input type="hidden" name="foto_painel_mime" id="foto_painel_mime" value="{{ old('foto_painel_mime', 'image/jpeg') }}">
 
                     <div class="form-grid">
+                        <div class="form-group full">
+    <label class="form-label">Veículo</label>
+    <select name="veiculo_id" class="form-select-custom" required>
+        <option value="">Selecione o veículo</option>
+
+        @foreach ($veiculos as $veiculoOption)
+            <option
+                value="{{ $veiculoOption->id }}"
+                {{ old('veiculo_id') == $veiculoOption->id ? 'selected' : '' }}
+            >
+                {{ $veiculoOption->placa }}
+                —
+                {{ trim(($veiculoOption->marca ?? '') . ' ' . ($veiculoOption->modelo ?? '')) }}
+                @if ($veiculoOption->ano)
+                    / {{ $veiculoOption->ano }}
+                @endif
+                —
+                KM: {{ number_format((float) $veiculoOption->km_atual, 1, ',', '.') }}
+            </option>
+        @endforeach
+    </select>
+</div>
                         <div class="form-group">
                             <label class="form-label">Data da solicitação</label>
                             <input
@@ -1013,7 +1050,7 @@
                                 min="0"
                                 name="km_informado"
                                 class="form-control-custom"
-                                value="{{ old('km_informado', $veiculo->km_atual ?? '') }}"
+                                value="{{ old('km_informado') }}"
                                 required
                             >
                         </div>

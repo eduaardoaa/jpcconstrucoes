@@ -4,10 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Models\DeslocamentoVeiculo;
 use App\Models\DeslocamentoVeiculoEtapa;
+use App\Models\Veiculo;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 use Illuminate\Support\Str;
 
 class DeslocamentoVeiculoController extends Controller
@@ -35,11 +37,11 @@ class DeslocamentoVeiculoController extends Controller
                 $query->where(function ($q) use ($busca) {
                     $q->whereHas('usuario', function ($uq) use ($busca) {
                         $uq->where('name', 'like', "%{$busca}%")
-                           ->orWhere('email', 'like', "%{$busca}%");
+                            ->orWhere('email', 'like', "%{$busca}%");
                     })->orWhereHas('veiculo', function ($vq) use ($busca) {
                         $vq->where('placa', 'like', "%{$busca}%")
-                           ->orWhere('marca', 'like', "%{$busca}%")
-                           ->orWhere('modelo', 'like', "%{$busca}%");
+                            ->orWhere('marca', 'like', "%{$busca}%")
+                            ->orWhere('modelo', 'like', "%{$busca}%");
                     });
                 });
             })
@@ -58,7 +60,6 @@ class DeslocamentoVeiculoController extends Controller
             ->orderByDesc('created_at')
             ->get();
 
-        // Usuários que já têm ao menos um deslocamento (para o select)
         $usuarios = \App\Models\User::whereIn(
             'id',
             DeslocamentoVeiculo::distinct()->pluck('user_id')
@@ -77,11 +78,11 @@ class DeslocamentoVeiculoController extends Controller
 
     public function meusDeslocamentos()
     {
-        $user = auth()->user()->load('veiculo');
+        $user = auth()->user();
 
-        if (!$user->podeSolicitarAbastecimento()) {
-            abort(403, 'Você não possui veículo ativo vinculado para registrar deslocamentos.');
-        }
+        $veiculos = Veiculo::where('status', 'ativo')
+            ->orderBy('placa')
+            ->get();
 
         $deslocamentos = DeslocamentoVeiculo::with([
             'veiculo',
@@ -97,6 +98,7 @@ class DeslocamentoVeiculoController extends Controller
 
         return view('abastecimento.deslocamentos.meus', compact(
             'user',
+            'veiculos',
             'deslocamentos',
             'deslocamentoEmAndamento'
         ));
@@ -104,28 +106,15 @@ class DeslocamentoVeiculoController extends Controller
 
     public function store(Request $request)
     {
-        $user = auth()->user()->load('veiculo');
-
-        if (!$user->podeSolicitarAbastecimento()) {
-            return redirect()
-                ->route('deslocamentos.meus')
-                ->with('error', 'Você precisa ter um veículo ativo vinculado para registrar um deslocamento.');
-        }
-
-        $existeEmAndamento = DeslocamentoVeiculo::where('user_id', $user->id)
-            ->where('veiculo_id', $user->veiculo_id)
-            ->where('status', 'em_andamento')
-            ->exists();
-
-        if ($existeEmAndamento) {
-            return redirect()
-                ->route('deslocamentos.meus')
-                ->with('error', 'Já existe um deslocamento em andamento para este veículo.');
-        }
+        $user = auth()->user();
 
         $validator = Validator::make(
             $request->all(),
             [
+                'veiculo_id'         => [
+                    'required',
+                    Rule::exists('veiculos', 'id')->where('status', 'ativo'),
+                ],
                 'motivo'            => ['nullable', 'string', 'max:255'],
                 'observacao'        => ['nullable', 'string'],
                 'data_saida'        => ['required', 'date'],
@@ -139,11 +128,13 @@ class DeslocamentoVeiculoController extends Controller
                 'foto_saida_mime'   => ['nullable', 'string'],
             ],
             [
-                'data_saida.required'        => 'A data de saída é obrigatória.',
-                'hora_saida.required'        => 'A hora de saída é obrigatória.',
-                'local_saida.required'       => 'O local de saída é obrigatório.',
-                'km_saida.required'          => 'O KM de saída é obrigatório.',
-                'foto_saida_base64.required' => 'A foto do painel na saída é obrigatória.',
+                'veiculo_id.required'       => 'Selecione o veículo do deslocamento.',
+                'veiculo_id.exists'         => 'O veículo selecionado é inválido ou está inativo.',
+                'data_saida.required'       => 'A data de saída é obrigatória.',
+                'hora_saida.required'       => 'A hora de saída é obrigatória.',
+                'local_saida.required'      => 'O local de saída é obrigatório.',
+                'km_saida.required'         => 'O KM de saída é obrigatório.',
+                'foto_saida_base64.required'=> 'A foto do painel na saída é obrigatória.',
             ]
         );
 
@@ -152,6 +143,18 @@ class DeslocamentoVeiculoController extends Controller
                 ->route('deslocamentos.meus')
                 ->withErrors($validator)
                 ->withInput()
+                ->with('open_modal_saida', true);
+        }
+
+        $existeEmAndamento = DeslocamentoVeiculo::where('veiculo_id', $request->veiculo_id)
+            ->where('status', 'em_andamento')
+            ->exists();
+
+        if ($existeEmAndamento) {
+            return redirect()
+                ->route('deslocamentos.meus')
+                ->withInput()
+                ->with('error', 'Já existe um deslocamento em andamento para este veículo.')
                 ->with('open_modal_saida', true);
         }
 
@@ -165,7 +168,7 @@ class DeslocamentoVeiculoController extends Controller
 
             $deslocamento = DeslocamentoVeiculo::create([
                 'user_id'    => $user->id,
-                'veiculo_id' => $user->veiculo_id,
+                'veiculo_id' => $request->veiculo_id,
                 'motivo'     => $request->motivo,
                 'observacao' => $request->observacao,
                 'status'     => 'em_andamento',
@@ -195,7 +198,7 @@ class DeslocamentoVeiculoController extends Controller
     {
         $user = auth()->user();
 
-        if (!$user->podeSolicitarAbastecimento() || $deslocamento->user_id !== $user->id) {
+        if ((int) $deslocamento->user_id !== (int) $user->id) {
             abort(403);
         }
 
@@ -274,7 +277,7 @@ class DeslocamentoVeiculoController extends Controller
     {
         $user = auth()->user();
 
-        if (!$user->podeSolicitarAbastecimento() || $deslocamento->user_id !== $user->id) {
+        if ((int) $deslocamento->user_id !== (int) $user->id) {
             abort(403);
         }
 
@@ -362,11 +365,11 @@ class DeslocamentoVeiculoController extends Controller
     private function salvarImagemBase64(string $base64, string $pasta, ?string $nome = null, ?string $mime = null): string
     {
         if (preg_match('/^data:(image\/[a-zA-Z0-9.+-]+);base64,/', $base64, $matches)) {
-            $mime  = $matches[1];
+            $mime = $matches[1];
             $base64 = substr($base64, strpos($base64, ',') + 1);
         }
 
-        $base64        = str_replace(' ', '+', $base64);
+        $base64 = str_replace(' ', '+', $base64);
         $arquivoBinario = base64_decode($base64);
 
         if ($arquivoBinario === false) {
@@ -374,9 +377,9 @@ class DeslocamentoVeiculoController extends Controller
         }
 
         $extensao = match ($mime) {
-            'image/png'  => 'png',
+            'image/png' => 'png',
             'image/webp' => 'webp',
-            default      => 'jpg',
+            default => 'jpg',
         };
 
         $nomeArquivo = ($nome ? pathinfo($nome, PATHINFO_FILENAME) : Str::uuid()->toString())

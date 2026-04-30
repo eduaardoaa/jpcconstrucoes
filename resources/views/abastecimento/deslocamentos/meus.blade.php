@@ -2,7 +2,7 @@
 
 @section('title', 'Meus Deslocamentos')
 @section('pageTitle', 'Meus Deslocamentos')
-@section('pageDescription', 'Registre saídas, paradas e chegadas do veículo vinculado ao seu usuário.')
+@section('pageDescription', 'Registre saídas, paradas e chegadas escolhendo um veículo disponível.')
 
 @section('content')
     <style>
@@ -184,6 +184,12 @@
             color: #fecaca;
             background: rgba(127, 29, 29, .24);
             border-color: rgba(248, 113, 113, .14);
+        }
+
+        .alert-warning-custom {
+            color: #fde68a;
+            background: rgba(120, 53, 15, .28);
+            border-color: rgba(251, 191, 36, .16);
         }
 
         .badge-status {
@@ -527,7 +533,7 @@
     </style>
 
     @php
-        $veiculo = $user->veiculo;
+        $temVeiculoAtivo = $veiculos->isNotEmpty();
         $total = $deslocamentos->count();
         $emAndamento = $deslocamentos->where('status', 'em_andamento')->count();
         $finalizados = $deslocamentos->where('status', 'finalizado')->count();
@@ -537,11 +543,11 @@
     <div class="page-head">
         <div>
             <h2>Meus deslocamentos</h2>
-            <p>Registre saídas, paradas e chegadas do veículo vinculado ao seu usuário.</p>
+            <p>Registre saídas, paradas e chegadas escolhendo o veículo desejado.</p>
         </div>
 
         <div class="page-actions">
-            @if (!$deslocamentoEmAndamento)
+            @if ($temVeiculoAtivo)
                 <button type="button" class="btn btn-dark-primary" onclick="abrirModalSaida()">
                     <i class="bi bi-plus-circle"></i> Nova saída
                 </button>
@@ -565,6 +571,12 @@
         </div>
     @endif
 
+    @if (!$temVeiculoAtivo)
+        <div class="alert-custom alert-warning-custom">
+            Nenhum veículo ativo cadastrado. Cadastre ou ative um veículo para registrar deslocamentos.
+        </div>
+    @endif
+
     @if ($errors->any())
         <div class="alert-custom alert-danger-custom">
             <strong>Corrija os campos abaixo:</strong>
@@ -579,27 +591,14 @@
     <div class="grid-top">
         <div class="dark-card">
             <div class="dark-card-header">
-                <h3>Veículo vinculado</h3>
-                <p>Esse veículo será usado em todos os seus deslocamentos.</p>
+                <h3>Veículos disponíveis</h3>
+                <p>Escolha o veículo no momento de registrar a saída.</p>
             </div>
             <div class="dark-card-body">
                 <div class="vehicle-highlight">
-                    <strong>{{ $veiculo->placa ?? 'SEM VEÍCULO VINCULADO' }}</strong>
-                    <span>
-                        {{ $veiculo ? trim(($veiculo->marca ?? '') . ' ' . ($veiculo->modelo ?? '')) : 'Solicite o vínculo de um veículo ao administrador.' }}
-                        @if (!empty($veiculo?->ano))
-                            • {{ $veiculo->ano }}
-                        @endif
-                    </span>
-                    <span>
-                        COMBUSTÍVEL: {{ $veiculo ? strtoupper($veiculo->tipo_combustivel ?? '—') : '—' }}
-                        @if(isset($veiculo?->km_atual))
-                            • KM ATUAL: {{ number_format((float) $veiculo->km_atual, 1, ',', '.') }}
-                        @endif
-                    </span>
-                    <span>
-                        STATUS: {{ $veiculo ? strtoupper($veiculo->status ?? '—') : '—' }}
-                    </span>
+                    <strong>{{ $veiculos->count() }} veículo(s) ativo(s)</strong>
+                    <span>A saída não depende mais de veículo vinculado ao usuário.</span>
+                    <span>Selecione o veículo desejado dentro do formulário.</span>
                 </div>
             </div>
         </div>
@@ -653,7 +652,12 @@
                                     {{ $deslocamento->motivo ?: 'Deslocamento sem motivo informado' }}
                                 </div>
                                 <div class="deslocamento-subtitle">
-                                    Veículo: {{ $deslocamento->veiculo->placa ?? '—' }}
+                                    Veículo:
+                                    {{ $deslocamento->veiculo->placa ?? '—' }}
+                                    @if ($deslocamento->veiculo)
+                                        —
+                                        {{ trim(($deslocamento->veiculo->marca ?? '') . ' ' . ($deslocamento->veiculo->modelo ?? '')) }}
+                                    @endif
                                     • Etapas: {{ $deslocamento->etapas->count() }}
                                 </div>
                             </div>
@@ -755,13 +759,36 @@
 
                     <div class="form-grid">
                         <div class="form-group full">
+                            <label class="form-label">Veículo</label>
+                            <select name="veiculo_id" class="form-control-custom" required>
+                                <option value="">Selecione o veículo</option>
+
+                                @foreach ($veiculos as $veiculoOption)
+                                    <option
+                                        value="{{ $veiculoOption->id }}"
+                                        {{ old('veiculo_id') == $veiculoOption->id ? 'selected' : '' }}
+                                    >
+                                        {{ $veiculoOption->placa }}
+                                        —
+                                        {{ trim(($veiculoOption->marca ?? '') . ' ' . ($veiculoOption->modelo ?? '')) }}
+                                        @if ($veiculoOption->ano)
+                                            / {{ $veiculoOption->ano }}
+                                        @endif
+                                        —
+                                        KM: {{ number_format((float) $veiculoOption->km_atual, 1, ',', '.') }}
+                                    </option>
+                                @endforeach
+                            </select>
+                        </div>
+
+                        <div class="form-group full">
                             <label class="form-label">Local de saída</label>
                             <input type="text" name="local_saida" id="local_saida" class="form-control-custom" value="{{ old('local_saida') }}" placeholder="Digite o endereço de saída..." required>
                         </div>
 
                         <div class="form-group">
                             <label class="form-label">KM de saída</label>
-                            <input type="number" step="0.1" min="0" name="km_saida" class="form-control-custom" value="{{ old('km_saida', $veiculo->km_atual ?? '') }}" required>
+                            <input type="number" step="0.1" min="0" name="km_saida" class="form-control-custom" value="{{ old('km_saida') }}" required>
                         </div>
 
                         <div class="form-group">
@@ -1242,7 +1269,6 @@
 
                 const data = await resp.json();
                 const a = data.address || {};
-
                 const partes = [];
 
                 if (a.road) {

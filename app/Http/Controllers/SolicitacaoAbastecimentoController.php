@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\SolicitacaoAbastecimento;
+use App\Models\Veiculo;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
@@ -12,29 +13,31 @@ class SolicitacaoAbastecimentoController extends Controller
 {
     public function index()
     {
-        $user = auth()->user()->load('veiculo');
+        $user = auth()->user();
+
+        $veiculos = Veiculo::where('status', 'ativo')
+            ->orderBy('placa')
+            ->get();
 
         $solicitacoes = SolicitacaoAbastecimento::with(['veiculo', 'aprovador'])
             ->where('user_id', $user->id)
             ->orderByDesc('created_at')
             ->get();
 
-        return view('abastecimento.solicitacoes.index', compact('user', 'solicitacoes'));
+        return view('abastecimento.solicitacoes.index', compact('user', 'solicitacoes', 'veiculos'));
     }
 
     public function store(Request $request)
     {
-        $user = auth()->user()->load('veiculo');
-
-        if (!$user->podeSolicitarAbastecimento()) {
-            return redirect()
-                ->route('abastecimento.solicitacoes.index')
-                ->with('error', 'Você precisa ter um veículo ativo vinculado para enviar uma solicitação.');
-        }
+        $user = auth()->user();
 
         $validator = Validator::make(
             $request->all(),
             [
+                'veiculo_id' => [
+                    'required',
+                    Rule::exists('veiculos', 'id')->where('status', 'ativo'),
+                ],
                 'data_solicitacao' => ['required', 'date'],
                 'km_informado' => ['required', 'numeric', 'min:0'],
 
@@ -47,6 +50,9 @@ class SolicitacaoAbastecimentoController extends Controller
                 'observacao_usuario' => ['nullable', 'string'],
             ],
             [
+                'veiculo_id.required' => 'Selecione o veículo da solicitação.',
+                'veiculo_id.exists' => 'O veículo selecionado é inválido ou está inativo.',
+
                 'data_solicitacao.required' => 'A data da solicitação é obrigatória.',
                 'data_solicitacao.date' => 'Informe uma data válida.',
 
@@ -92,7 +98,7 @@ class SolicitacaoAbastecimentoController extends Controller
 
         SolicitacaoAbastecimento::create([
             'user_id' => $user->id,
-            'veiculo_id' => $user->veiculo_id,
+            'veiculo_id' => $request->veiculo_id,
             'data_solicitacao' => $request->data_solicitacao,
             'km_informado' => $request->km_informado,
             'foto_painel' => $fotoPainelPath,
@@ -138,17 +144,6 @@ class SolicitacaoAbastecimentoController extends Controller
                 'foto_selfie_base64' => ['required', 'string'],
                 'foto_selfie_nome' => ['nullable', 'string', 'max:255'],
                 'foto_selfie_mime' => ['nullable', Rule::in(['image/jpeg', 'image/png', 'image/webp'])],
-            ],
-            [
-                'foto_nota_base64.required' => 'A foto da nota é obrigatória.',
-                'foto_nota_base64.string' => 'A foto da nota é inválida.',
-                'foto_nota_nome.max' => 'O nome da foto da nota é muito grande.',
-                'foto_nota_mime.in' => 'A foto da nota deve ser JPEG, PNG ou WEBP.',
-
-                'foto_selfie_base64.required' => 'A selfie do usuário é obrigatória.',
-                'foto_selfie_base64.string' => 'A selfie enviada é inválida.',
-                'foto_selfie_nome.max' => 'O nome da selfie é muito grande.',
-                'foto_selfie_mime.in' => 'A selfie deve ser JPEG, PNG ou WEBP.',
             ]
         );
 
