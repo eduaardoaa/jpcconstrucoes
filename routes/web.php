@@ -341,4 +341,10 @@ Route::prefix('whatsapp')->name('whatsapp.')->middleware('auth')->group(function
 
     Route::patch('/conversas/mensagens/{mensagem}/editar', [WhatsappConversaController::class, 'editarMensagem'])
         ->name('conversas.mensagem.editar');
+
+    Route::post('/conversas/{conversa}/mensagem/{mensagem}/reagir', [WhatsappConversaController::class, 'reagir'])
+        ->name('conversas.mensagem.reagir');
+
+    Route::patch('/instancias/{instancia}/membro/renomear', [WhatsappConversaController::class, 'renomearMembro'])
+        ->name('instancias.membro.renomear');
 });

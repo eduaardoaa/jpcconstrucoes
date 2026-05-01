@@ -70,13 +70,19 @@
         $isGrupoAtual = (bool) ($contatoAtual?->is_grupo ?? false);
         $nomeAtual    = $contatoAtual?->nome_exibicao ?? 'Contato';
 
-        $contatosMap = [];
+        $contatosMap   = [];
+        $contatosIdMap = []; // jid → contato id (para renomear)
         if ($isGrupoAtual && $instanciaSelecionada) {
             \App\Models\WhatsappContato::where('whatsapp_instancia_id', $instanciaSelecionada->id)
                 ->whereNotNull('remote_jid')
-                ->get(['remote_jid', 'nome', 'push_name', 'numero'])
-                ->each(function ($c) use (&$contatosMap) {
-                    $contatosMap[$c->remote_jid] = $c->nome_exibicao;
+                ->get(['id', 'remote_jid', 'lid_jid', 'nome', 'push_name', 'numero'])
+                ->each(function ($c) use (&$contatosMap, &$contatosIdMap) {
+                    $contatosMap[$c->remote_jid]   = $c->nome_exibicao;
+                    $contatosIdMap[$c->remote_jid] = $c->id;
+                    if ($c->lid_jid) {
+                        $contatosMap[$c->lid_jid]   = $c->nome_exibicao;
+                        $contatosIdMap[$c->lid_jid] = $c->id;
+                    }
                 });
         }
     @endphp
@@ -89,11 +95,24 @@
                 $dataMsg = $mensagem->created_at->format('Y-m-d');
                 $nomeInterno = $mensagem->usuario?->name;
 
-                $nomeParticipant = null;
+                $nomeParticipant  = null;
+                $partAltGlobal    = null; // @s.whatsapp.net alternativo do participant
                 if ($isGrupoAtual && $mensagem->direcao === 'entrada' && $mensagem->participant) {
                     $nomeParticipant = $contatosMap[$mensagem->participant] ?? null;
                     if (!$nomeParticipant) {
-                        $nomeParticipant = preg_replace('/[^0-9]/', '', str_replace('@s.whatsapp.net', '', $mensagem->participant));
+                        $pl_alt        = is_array($mensagem->payload) ? $mensagem->payload : [];
+                        $partAltGlobal = $pl_alt['data']['key']['participantAlt']
+                                      ?? $pl_alt['data']['participantAlt']
+                                      ?? null;
+                        if ($partAltGlobal) {
+                            $nomeParticipant = $contatosMap[$partAltGlobal] ?? null;
+                        }
+                    }
+                    if (!$nomeParticipant) {
+                        $pl_          = is_array($mensagem->payload) ? $mensagem->payload : [];
+                        $pushFallback = $pl_['data']['pushName'] ?? null;
+                        $nomeParticipant = $pushFallback
+                            ?: preg_replace('/[^0-9]/', '', str_replace(['@s.whatsapp.net','@lid'], '', $mensagem->participant));
                     }
                 }
             @endphp
@@ -158,6 +177,11 @@
 
                     @unless($mensagem->apagada_em)
                     <div class="wa-msg-actions">
+                        <button class="wa-msg-action-btn react" title="Reagir"
+                            data-react-url="{{ route('whatsapp.conversas.mensagem.reagir', [$conversaSelecionada, $mensagem]) }}"
+                            data-token="{{ csrf_token() }}">
+                            <i class="bi bi-emoji-smile"></i>
+                        </button>
                         <button class="wa-msg-action-btn reply" title="Responder">
                             <i class="bi bi-reply-fill"></i>
                         </button>
@@ -184,7 +208,16 @@
                     @if($mensagem->direcao === 'saida' && $nomeInterno)
                         <div class="wa-msg-sender-internal">{{ $nomeInterno }}</div>
                     @elseif($nomeParticipant)
-                        <div class="wa-msg-sender-group">{{ $nomeParticipant }}</div>
+                        <div class="wa-msg-sender-group wa-sender-renomear"
+                             data-url="{{ route('whatsapp.instancias.membro.renomear', $instanciaSelecionada->id) }}"
+                             data-token="{{ csrf_token() }}"
+                             data-participant="{{ $mensagem->participant }}"
+                             data-participant-alt="{{ $partAltGlobal ?? '' }}"
+                             data-nome-atual="{{ $nomeParticipant }}"
+                             title="Clique para renomear">
+                            {{ $nomeParticipant }}
+                            <i class="bi bi-pencil-fill wa-rename-icon"></i>
+                        </div>
                     @endif
 
                     @if($mensagem->apagada_em)
@@ -267,6 +300,21 @@
                         @endif
                     </div>
                 </div>
+
+                @if(!empty($mensagem->reacoes))
+                    @php
+                        $totalReacoes = array_sum(array_map('count', $mensagem->reacoes));
+                    @endphp
+                    <div class="wa-msg-reactions">
+                        @foreach($mensagem->reacoes as $emoji => $reatores)
+                            @if(!empty($reatores))
+                                <span class="wa-reaction-badge" title="{{ implode(', ', array_map(fn($r) => $r === 'me' ? 'Você' : preg_replace('/[^0-9]/', '', str_replace(['@s.whatsapp.net','@lid'], '', $r)), $reatores)) }}">
+                                    {{ $emoji }}{{ count($reatores) > 1 ? ' ' . count($reatores) : '' }}
+                                </span>
+                            @endif
+                        @endforeach
+                    </div>
+                @endif
             </div>
         @empty
             <div class="text-center py-5" style="color: var(--wa-text-muted); opacity:0.4;">

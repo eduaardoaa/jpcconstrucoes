@@ -959,6 +959,43 @@ class WhatsappConversaController extends Controller
         return response()->json(['success' => true, 'nome' => $contato->nome_exibicao]);
     }
 
+    public function renomearMembro(Request $request, WhatsappInstancia $instancia)
+    {
+        $request->validate([
+            'nome'        => ['required', 'string', 'max:100'],
+            'participant' => ['required', 'string'],
+        ]);
+
+        $usuario = auth()->user();
+        $temAcesso = $usuario->isAdmin() || $usuario->whatsappInstancias()
+            ->where('whatsapp_instancias.id', $instancia->id)
+            ->exists();
+        abort_unless($temAcesso, 403);
+
+        $participant    = $request->participant;
+        $participantAlt = $request->participant_alt; // @s.whatsapp.net alternativo
+
+        // Tenta achar pelo remote_jid ou lid_jid (tenta @lid primeiro, depois @s.whatsapp.net)
+        $contato = WhatsappContato::where('whatsapp_instancia_id', $instancia->id)
+            ->where(function ($q) use ($participant, $participantAlt) {
+                $q->where('remote_jid', $participant)
+                  ->orWhere('lid_jid', $participant);
+                if ($participantAlt) {
+                    $q->orWhere('remote_jid', $participantAlt)
+                      ->orWhere('lid_jid', $participantAlt);
+                }
+            })
+            ->first();
+
+        if (!$contato) {
+            return response()->json(['error' => 'Contato não encontrado no banco. Sincronize os contatos primeiro.'], 422);
+        }
+
+        $contato->update(['nome' => trim($request->nome)]);
+
+        return response()->json(['success' => true, 'nome' => $contato->nome_exibicao]);
+    }
+
     public function definirNumeroContato(Request $request, WhatsappConversa $conversa)
     {
         $request->validate(['numero' => ['required', 'string', 'regex:/^[0-9]{10,15}$/']]);
@@ -1178,6 +1215,62 @@ class WhatsappConversaController extends Controller
             'conteudo'   => $novoTexto,
             'editada_em' => now(),
         ]);
+
+        return response()->json(['success' => true]);
+    }
+
+    public function reagir(Request $request, WhatsappConversa $conversa, WhatsappMensagem $mensagem)
+    {
+        $this->validarAcessoConversa($conversa);
+
+        $request->validate(['emoji' => ['required', 'string', 'max:10']]);
+
+        if ($mensagem->whatsapp_conversa_id !== $conversa->id) {
+            abort(404);
+        }
+
+        $instancia = WhatsappInstancia::findOrFail($conversa->whatsapp_instancia_id);
+
+        $pl   = is_array($mensagem->payload) ? $mensagem->payload : [];
+        $data = $pl['data'] ?? $pl;
+        $key  = $data['key'] ?? null;
+
+        if (!$key || !isset($key['id'])) {
+            return response()->json(['error' => 'Não foi possível identificar a mensagem no WhatsApp.'], 422);
+        }
+
+        // Garante que remoteJid não seja @lid (usa o JID real da conversa)
+        if (isset($key['remoteJid']) && str_contains((string) $key['remoteJid'], '@lid')) {
+            $jidReal = $conversa->contato?->remote_jid ?? '';
+            if ($jidReal && !str_contains($jidReal, '@lid')) {
+                $key['remoteJid'] = $jidReal;
+            }
+        }
+
+        try {
+            $resp = Http::withHeaders(['apikey' => $instancia->api_key, 'Content-Type' => 'application/json'])
+                ->timeout(10)
+                ->post(
+                    rtrim($instancia->api_url, '/') . '/message/sendReaction/' . $instancia->instance_name,
+                    [
+                        'key'      => [
+                            'remoteJid' => $key['remoteJid'] ?? '',
+                            'fromMe'    => $key['fromMe'] ?? false,
+                            'id'        => $key['id'],
+                        ],
+                        'reaction' => $request->emoji,
+                    ]
+                );
+
+            if (!$resp->successful()) {
+                return response()->json([
+                    'error' => 'Não foi possível reagir: ' . $resp->body(),
+                ], 422);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('reagir: exceção ao chamar Evolution API', ['erro' => $e->getMessage()]);
+            return response()->json(['error' => 'Erro ao conectar com o WhatsApp: ' . $e->getMessage()], 500);
+        }
 
         return response()->json(['success' => true]);
     }

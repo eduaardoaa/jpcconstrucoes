@@ -2,8 +2,7 @@
 
 @section('title', 'Solicitação de Abastecimento')
 @section('pageTitle', 'Solicitação de Abastecimento')
-@section('pageDescription', 'Solicite abastecimento para o veículo vinculado ao seu usuário.')
-
+@section('pageDescription', 'Solicite abastecimento escolhendo um veículo disponível.')
 @section('content')
     <style>
     .page-head {
@@ -642,10 +641,20 @@
 
     @php
     $temVeiculoAtivo = $veiculos->isNotEmpty();
-        $pendentes = $solicitacoes->where('status', 'pendente')->count();
-        $aprovadas = $solicitacoes->where('status', 'aprovada')->count() + $solicitacoes->where('status', 'ajustada')->count();
-        $reprovadas = $solicitacoes->where('status', 'reprovada')->count();
-    @endphp
+    $pendentes = $solicitacoes->where('status', 'pendente')->count();
+    $aprovadas = $solicitacoes->where('status', 'aprovada')->count() + $solicitacoes->where('status', 'ajustada')->count();
+    $reprovadas = $solicitacoes->where('status', 'reprovada')->count();
+
+    $fotoUrl = function ($path) {
+        if (!$path) return null;
+
+        $path = ltrim($path, '/');
+        $path = str_replace('public/', '', $path);
+        $path = str_replace('storage/', '', $path);
+
+        return url('storage/app/public/' . $path);
+    };
+@endphp
 
     <div class="page-head">
         <div>
@@ -785,7 +794,6 @@
                             <tbody>
                                 @foreach ($solicitacoes as $solicitacao)
                                     <tr>
-                                        <tr>
     <td>{{ optional($solicitacao->data_solicitacao)->format('d/m/Y') }}</td>
 
     <td>
@@ -802,9 +810,9 @@
     <td>{{ number_format((float) $solicitacao->km_informado, 1, ',', '.') }}</td>
                                         <td>
                                             @if ($solicitacao->foto_painel)
-                                                <a href="{{ asset('storage/' . $solicitacao->foto_painel) }}" target="_blank">
+                                                <a href="{{ $fotoUrl($solicitacao->foto_painel) }}" target="_blank">
                                                     <img
-                                                        src="{{ asset('storage/' . $solicitacao->foto_painel) }}"
+                                                        src="{{ $fotoUrl($solicitacao->foto_painel) }}"
                                                         alt="Foto do painel"
                                                         class="thumb-foto"
                                                     >
@@ -922,9 +930,9 @@
                             <div>
                                 <span class="mobile-label">Foto do painel</span>
                                 @if ($solicitacao->foto_painel)
-                                    <a href="{{ asset('storage/' . $solicitacao->foto_painel) }}" target="_blank">
+                                    <a href="{{ $fotoUrl($solicitacao->foto_painel) }}" target="_blank">
                                         <img
-                                            src="{{ asset('storage/' . $solicitacao->foto_painel) }}"
+                                            src="{{ $fotoUrl($solicitacao->foto_painel) }}"
                                             alt="Foto do painel"
                                             class="thumb-foto"
                                         >

@@ -334,7 +334,49 @@ height: calc(100vh - 125px);    display: flex;
         font-weight: 600;
         color: var(--wa-group-color);
         margin-bottom: 3px;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
     }
+    .wa-sender-renomear { cursor: pointer; }
+    .wa-rename-icon {
+        font-size: 10px;
+        opacity: 0;
+        transition: opacity 0.15s;
+        color: var(--wa-text-muted);
+    }
+    .wa-sender-renomear:hover .wa-rename-icon { opacity: 1; }
+
+    /* Modal renomear membro */
+    .wa-rename-modal-overlay {
+        position: fixed; inset: 0; z-index: 9999;
+        background: rgba(0,0,0,0.55);
+        display: flex; align-items: center; justify-content: center;
+    }
+    .wa-rename-modal {
+        background: #1d2b30;
+        border-radius: 14px;
+        padding: 24px 28px;
+        min-width: 300px;
+        box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+        display: flex; flex-direction: column; gap: 14px;
+    }
+    .wa-rename-modal h6 {
+        margin: 0; color: var(--wa-text); font-size: 15px; font-weight: 700;
+    }
+    .wa-rename-modal input {
+        background: #2a3942; border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 8px; color: var(--wa-text); font-size: 14px;
+        padding: 8px 12px; outline: none; width: 100%;
+    }
+    .wa-rename-modal input:focus { border-color: var(--wa-green); }
+    .wa-rename-modal-btns { display: flex; gap: 10px; justify-content: flex-end; }
+    .wa-rename-modal-btns button {
+        border: none; border-radius: 8px; padding: 7px 18px;
+        font-size: 13px; cursor: pointer; font-weight: 600;
+    }
+    .wa-rename-cancel { background: rgba(255,255,255,0.08); color: var(--wa-text); }
+    .wa-rename-save   { background: var(--wa-green); color: #fff; }
 
     .wa-msg-content { white-space: pre-wrap; word-break: break-word; color: var(--wa-text); }
     .wa-msg-footer { display: flex; justify-content: flex-end; align-items: center; gap: 4px; margin-top: 4px; }
@@ -530,7 +572,7 @@ height: calc(100vh - 125px);    display: flex;
         bottom: 75px;
         left: 60px;
         width: 320px;
-        max-height: 280px;
+        max-height: 320px;
         background: #233138;
         border-radius: 14px;
         box-shadow: 0 10px 30px rgba(0,0,0,0.5);
@@ -757,6 +799,72 @@ height: calc(100vh - 125px);    display: flex;
     }
     .wa-msg-action-btn.reply:hover  { background: rgba(0,168,132,0.75); }
     .wa-msg-action-btn.delete:hover { background: rgba(244,67,54,0.75); }
+    .wa-msg-action-btn.react:hover  { background: rgba(240,165,0,0.75); }
+
+    /* ========== MINI REACTION PICKER ========== */
+    .wa-reaction-picker {
+        position: absolute;
+        z-index: 200;
+        background: #233138;
+        border-radius: 28px;
+        padding: 6px 10px;
+        display: flex;
+        gap: 4px;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+        animation: fadeInUp 0.15s ease;
+    }
+    .wa-reaction-emoji {
+        font-size: 24px;
+        cursor: pointer;
+        padding: 3px 4px;
+        border-radius: 50%;
+        line-height: 1;
+        transition: transform 0.1s, background 0.1s;
+        user-select: none;
+    }
+    .wa-reaction-emoji:hover { transform: scale(1.35); background: rgba(255,255,255,0.1); }
+
+    /* ========== REACTION BADGES ========== */
+    .wa-msg-reactions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 3px;
+        padding: 0 2px;
+    }
+    .wa-msg-row.out .wa-msg-reactions { justify-content: flex-end; }
+    .wa-msg-row.in  .wa-msg-reactions { justify-content: flex-start; }
+    .wa-reaction-badge {
+        background: #2a3942;
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 12px;
+        padding: 2px 7px;
+        font-size: 14px;
+        cursor: default;
+        line-height: 1.4;
+        user-select: none;
+        transition: background 0.15s;
+    }
+    .wa-reaction-badge:hover { background: #3b4a54; }
+
+    /* ========== EMOJI SEARCH INPUT ========== */
+    .wa-emoji-search {
+        padding: 6px 8px;
+        flex-shrink: 0;
+    }
+    .wa-emoji-search input {
+        width: 100%;
+        background: #1a2832;
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 20px;
+        color: var(--wa-text);
+        font-size: 13px;
+        padding: 5px 12px;
+        outline: none;
+        transition: border-color 0.2s;
+    }
+    .wa-emoji-search input:focus { border-color: var(--wa-green); }
+    .wa-emoji-search input::placeholder { color: var(--wa-text-muted); }
 
     /* ========== CITAÇÃO / QUOTED ========== */
     .wa-quoted-bubble {
@@ -1115,6 +1223,11 @@ height: calc(100vh - 125px);    display: flex;
                             {{-- Botões de ação (hover) --}}
                             @unless($mensagem->apagada_em)
                             <div class="wa-msg-actions">
+                                <button class="wa-msg-action-btn react" title="Reagir"
+                                    data-react-url="{{ route('whatsapp.conversas.mensagem.reagir', [$conversaSelecionada, $mensagem]) }}"
+                                    data-token="{{ csrf_token() }}">
+                                    <i class="bi bi-emoji-smile"></i>
+                                </button>
                                 <button class="wa-msg-action-btn reply" title="Responder">
                                     <i class="bi bi-reply-fill"></i>
                                 </button>
@@ -1236,6 +1349,18 @@ height: calc(100vh - 125px);    display: flex;
                                 @endif
                             </div>
                         </div>
+
+                        @if(!empty($mensagem->reacoes))
+                            <div class="wa-msg-reactions">
+                                @foreach($mensagem->reacoes as $emoji => $reatores)
+                                    @if(!empty($reatores))
+                                        <span class="wa-reaction-badge" title="{{ implode(', ', array_map(fn($r) => $r === 'me' ? 'Você' : preg_replace('/[^0-9]/', '', str_replace(['@s.whatsapp.net','@lid'], '', $r)), $reatores)) }}">
+                                            {{ $emoji }}{{ count($reatores) > 1 ? ' ' . count($reatores) : '' }}
+                                        </span>
+                                    @endif
+                                @endforeach
+                            </div>
+                        @endif
                     </div>
                 @empty
                     <div class="text-center py-5" style="color: var(--wa-text-muted); opacity:0.4;">
@@ -1265,6 +1390,9 @@ height: calc(100vh - 125px);    display: flex;
                 <button class="wa-icon-btn" id="emojiBtn" title="Emoji"><i class="bi bi-emoji-smile"></i></button>
 
                 <div class="wa-emoji-panel" id="emojiPanel">
+                    <div class="wa-emoji-search">
+                        <input type="text" id="emojiSearch" placeholder="Pesquisar emoji..." autocomplete="off">
+                    </div>
                     <div class="wa-emoji-tabs" id="emojiTabs"></div>
                     <div class="wa-emoji-grid" id="emojiGrid"></div>
                 </div>
@@ -1859,9 +1987,16 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // ===== EVENT DELEGATION — ações por mensagem =====
     document.getElementById('waMessages')?.addEventListener('click', function (e) {
+        const reactBtn  = e.target.closest('.wa-msg-action-btn.react');
         const replyBtn  = e.target.closest('.wa-msg-action-btn.reply');
         const deleteBtn = e.target.closest('.wa-msg-action-btn.delete');
         const editBtn   = e.target.closest('.wa-msg-action-btn.edit');
+
+        if (reactBtn) {
+            e.stopPropagation();
+            mostrarReactionPicker(reactBtn);
+            return;
+        }
 
         if (replyBtn) {
             const row     = replyBtn.closest('[data-msg-id]');
@@ -2057,11 +2192,298 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 
+    // ===== EMOJI SEARCH =====
+    const emojiSearchInput = document.getElementById('emojiSearch');
+
+    // Keyword map for Portuguese emoji search
+    const EMOJI_KEYWORDS = {
+        '😀':'feliz sorriso rindo','😁':'sorriso dentes feliz','😂':'rindo chorando engraçado','🤣':'rolando rindo chão engraçado',
+        '😃':'sorriso olhos feliz','😄':'sorriso feliz','😅':'aliviado suor nervoso','😆':'engraçado rindo','😇':'anjo bom santinho',
+        '😉':'piscando malicioso','😊':'corado tímido feliz','😋':'gostoso delicioso','😌':'aliviado calmo','😍':'apaixonado olhos corações',
+        '🥰':'amando corações feliz','😘':'beijo voador amor','😗':'beijo','😙':'beijo sorriso','😚':'beijo olhos fechados',
+        '😛':'língua fora provocando','😜':'piscando língua fora','🤪':'louco maluco','😝':'língua fechando olhos',
+        '🤑':'dinheiro cifrão ganancioso','🤗':'abraço feliz','🤭':'ops boca tampada','🤫':'silêncio calado',
+        '🤔':'pensando reflexão dúvida','🤐':'boca fechada silêncio zíper','🤨':'desconfiado suspeitoso',
+        '😐':'neutro indiferente','😑':'sem expressão entediado','😶':'sem boca silêncio','😏':'malicioso irônico sarcástico',
+        '😒':'aborrecido chateado','🙄':'olhos virando entediado','😬':'nervoso awkward','🤥':'mentiroso nariz',
+        '😔':'triste melancólico','😪':'sonolento cansado','🤤':'babando desejando','😴':'dormindo sono cansado',
+        '😷':'máscara doente','🤒':'doente febre termômetro','🤕':'machucado curativo cabeça','🤢':'enjoado mal',
+        '🤮':'vomitando nojo','🤧':'espirro alérgico resfriado','😰':'ansioso preocupado suor','😥':'decepcionado suor','😢':'chorando triste lágrima',
+        '😭':'chorando muito triste','😱':'assustado gritando choque','😖':'confuso frustrado','😣':'esforçando perseverando',
+        '😞':'decepcionado triste','😓':'aliviado suor trabalho','😩':'exausto desmotivado','😫':'cansado exausto',
+        '🥱':'bocejando entediado cansado','😤':'raiva bufando','😡':'bravo raivoso vermelho','😠':'irritado bravo',
+        '🤬':'xingando palavrão raiva','😈':'diabo mal travesso','👿':'diabo bravo mal',
+        '💀':'caveira morte','☠️':'caveira ossos perigo','💩':'cocô merda','🤡':'palhaço','👹':'monstro ogro',
+        '👺':'demônio japão','👻':'fantasma halloween','👽':'alienígena','👾':'alien invasor','🤖':'robô',
+        '👋':'tchau oi acenando mão','🤚':'mão levantada','🖐':'mão dedos','✋':'mão stop alto',
+        '🖖':'vulcano spock','👌':'ok perfeito','🤌':'italiano perfeito gesto','✌️':'paz vitória dois dedos',
+        '🤞':'dedos cruzados sorte','🤟':'te amo rock','🤘':'rock heavy metal','🤙':'liga me surf',
+        '👈':'apontando esquerda','👉':'apontando direita','👆':'apontando cima','👇':'apontando baixo',
+        '☝️':'apontando índice','👍':'joinha legal ok aprovado','👎':'não ruim reprovado',
+        '✊':'punho força power','👊':'soco','🤛':'punho esquerdo','🤜':'punho direito','👏':'palmas aplauso parabéns',
+        '🙌':'mãos levantadas comemorando','👐':'mãos abertas','🤲':'palmas unidas','🤝':'aperto mão acordo',
+        '🙏':'obrigado por favor rezando','💪':'músculo forte braço','❤️':'coração amor vermelho',
+        '🧡':'coração laranja','💛':'coração amarelo','💚':'coração verde','💙':'coração azul',
+        '💜':'coração roxo','🖤':'coração preto','🤍':'coração branco','🤎':'coração marrom',
+        '💔':'coração partido quebrado','💕':'corações amor','💞':'corações girando','💓':'coração batendo',
+        '💗':'coração crescendo','💖':'coração brilhante','💘':'coração flecha','💝':'coração laço',
+        '⭐':'estrela','🌟':'estrela brilhante','✨':'brilho sparkles','💫':'estrela girando',
+        '🔥':'fogo chamas quente','💥':'explosão boom','❄️':'neve frio gelo','🌈':'arco-íris',
+        '🎉':'confete festa parabéns comemoração','🎊':'festa comemorando','🎈':'balão festa',
+        '🎁':'presente regalo','🎀':'laço fita presente','🎂':'bolo aniversário',
+        '🍕':'pizza','🍔':'hamburguer lanche','🍟':'batata frita','🍣':'sushi','🍜':'macarrão ramen',
+        '🍦':'sorvete','🍰':'torta bolo fatia','🍩':'rosquinha donut','🍪':'biscoito cookie',
+        '🍫':'chocolate','☕':'café','🍺':'cerveja','🍷':'vinho','🥂':'brinde taça',
+        '🚗':'carro','🚀':'foguete','✈️':'avião viagem','🏠':'casa','🌍':'mundo terra',
+        '🐶':'cachorro cão','🐱':'gato','🐭':'rato','🐹':'hamster','🐰':'coelho','🦊':'raposa',
+        '🐻':'urso','🐼':'panda','🐨':'koala','🦁':'leão','🐯':'tigre','🐸':'sapo',
+        '🌸':'flor sakura','🌺':'flor tropical','🌻':'girassol','🌹':'rosa flor','🌷':'tulipa',
+        '🌴':'palmeira','🌵':'cacto','🍀':'trevo sorte','🍃':'folha verde',
+        '💎':'diamante joia','👑':'coroa rei rainha','🏆':'troféu campeão primeiro',
+        '🎯':'alvo acerto meta','🎮':'videogame jogar','🎵':'música nota','🎶':'músicas notas',
+        '📱':'celular smartphone','💻':'computador notebook laptop','📷':'câmera foto',
+        '💡':'lâmpada ideia','🔑':'chave','🔒':'cadeado fechado','🔓':'cadeado aberto',
+        '📩':'email carta mensagem','📞':'telefone ligação','🔔':'sino notificação',
+        '✅':'ok sim correto aprovado check','❌':'não errado incorreto x','⚠️':'aviso cuidado',
+        '💯':'cem perfeito nota máxima','🆙':'up subiu','🆒':'cool massa',
+        '😢':'chorando triste','😭':'muito triste chorando','🥺':'implorando olhos tristes',
+        '🙁':'levemente triste','☹️':'triste','😦':'assustado boca aberta','😧':'angustiado',
+        '😨':'assustado medo','😰':'medo ansioso','😱':'gritando susto',
+    };
+
+    function buildEmojiGridFromList(emojis) {
+        emojiGrid.innerHTML = '';
+        emojis.forEach(em => {
+            const span = document.createElement('span');
+            span.className = 'wa-emoji-item';
+            span.textContent = em;
+            span.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (!mainInput) return;
+                const start = mainInput.selectionStart;
+                const end   = mainInput.selectionEnd;
+                const val   = mainInput.value;
+                mainInput.value = val.slice(0, start) + em + val.slice(end);
+                mainInput.selectionStart = mainInput.selectionEnd = start + em.length;
+                mainInput.focus();
+                mainInput.dispatchEvent(new Event('input'));
+            });
+            emojiGrid.appendChild(span);
+        });
+    }
+
+    if (emojiSearchInput) {
+        emojiSearchInput.addEventListener('input', function(e) {
+            e.stopPropagation();
+            const q = this.value.trim().toLowerCase();
+            if (!q) {
+                // Restore tabs and current category
+                emojiTabs.style.display = '';
+                buildEmojiGrid(currentCatIdx);
+                return;
+            }
+            // Hide tabs while searching
+            emojiTabs.style.display = 'none';
+
+            // Collect all emojis from all categories
+            const allEmojis = EMOJI_CATS.flatMap(c => c.emojis);
+            const seen = new Set();
+            const results = [];
+
+            allEmojis.forEach(em => {
+                if (seen.has(em)) return;
+                seen.add(em);
+                // Match on the emoji itself or its keywords
+                const keywords = EMOJI_KEYWORDS[em] || '';
+                if (em.includes(q) || keywords.toLowerCase().includes(q)) {
+                    results.push(em);
+                }
+            });
+
+            buildEmojiGridFromList(results.length ? results : []);
+            if (results.length === 0) {
+                emojiGrid.innerHTML = '<div style="padding:16px;color:var(--wa-text-muted);font-size:13px;text-align:center">Nenhum emoji encontrado</div>';
+            }
+        });
+
+        emojiSearchInput.addEventListener('click', e => e.stopPropagation());
+    }
+
+    // ===== MINI REACTION PICKER =====
+    const QUICK_REACTIONS = ['❤️','👍','😂','😮','😢','🙏'];
+    let activeReactionPicker = null;
+
+    function fecharReactionPicker() {
+        if (activeReactionPicker) {
+            activeReactionPicker.remove();
+            activeReactionPicker = null;
+        }
+    }
+
+    function mostrarReactionPicker(btn) {
+        fecharReactionPicker();
+
+        const picker = document.createElement('div');
+        picker.className = 'wa-reaction-picker';
+
+        QUICK_REACTIONS.forEach(emoji => {
+            const span = document.createElement('span');
+            span.className = 'wa-reaction-emoji';
+            span.textContent = emoji;
+            span.title = emoji;
+            span.addEventListener('click', async function(e) {
+                e.stopPropagation();
+                fecharReactionPicker();
+                await enviarReacao(btn.dataset.reactUrl, btn.dataset.token, emoji);
+            });
+            picker.appendChild(span);
+        });
+
+        // Position the picker above the button
+        const rect = btn.getBoundingClientRect();
+        const msgRow = btn.closest('.wa-msg-row');
+        const isOut  = msgRow && msgRow.classList.contains('out');
+
+        // Append to body for correct stacking (fixed positioning relative to viewport)
+        picker.style.position = 'fixed';
+        picker.style.top = '-9999px'; // off-screen to measure
+        document.body.appendChild(picker);
+        const pickerW = picker.offsetWidth || 220;
+        const pickerH = picker.offsetHeight || 44;
+
+        // Align right edge to button's right edge for outgoing, left edge otherwise
+        let left = isOut ? rect.right - pickerW : rect.left;
+        left = Math.max(4, Math.min(left, window.innerWidth - pickerW - 4));
+
+        // Show above the button; fall back to below if not enough space
+        let top = rect.top - pickerH - 6;
+        if (top < 4) top = rect.bottom + 6;
+
+        picker.style.left = left + 'px';
+        picker.style.top  = top + 'px';
+
+        activeReactionPicker = picker;
+    }
+
+    async function enviarReacao(url, token, emoji) {
+        if (!url || url === '#') return;
+        const fd = new FormData();
+        fd.append('_token', token);
+        fd.append('emoji', emoji);
+        try {
+            const resp = await fetch(url, {
+                method: 'POST',
+                body: fd,
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            });
+            if (!resp.ok) {
+                const d = await resp.json().catch(() => ({}));
+                console.warn('Reação não enviada:', d.error || resp.status);
+            }
+        } catch (err) {
+            console.warn('Erro ao enviar reação:', err);
+        }
+    }
+
+    // Close reaction picker on outside click
+    document.addEventListener('click', function(e) {
+        if (activeReactionPicker && !activeReactionPicker.contains(e.target)) {
+            fecharReactionPicker();
+        }
+    });
+
     document.getElementById('fileImagem')?.addEventListener('change', function () {
         if (this.files[0]) { enviarArquivo(this.files[0]); this.value = ''; }
     });
     document.getElementById('fileDocumento')?.addEventListener('change', function () {
         if (this.files[0]) { enviarArquivo(this.files[0]); this.value = ''; }
+    });
+
+    // ===== RENOMEAR MEMBRO DE GRUPO =====
+    document.getElementById('waMessages')?.addEventListener('click', function(e) {
+        const senderEl = e.target.closest('.wa-sender-renomear[data-url]');
+        if (!senderEl) return;
+        e.stopPropagation();
+
+        const url            = senderEl.dataset.url;
+        const token          = senderEl.dataset.token;
+        const nomeAtual      = senderEl.dataset.nomeAtual || '';
+        const participant    = senderEl.dataset.participant || '';
+        const participantAlt = senderEl.dataset.participantAlt || '';
+
+        const overlay = document.createElement('div');
+        overlay.className = 'wa-rename-modal-overlay';
+        overlay.innerHTML = `
+            <div class="wa-rename-modal">
+                <h6>Renomear membro</h6>
+                <input type="text" id="renameInput" value="${nomeAtual.replace(/</g,'&lt;').replace(/>/g,'&gt;')}" maxlength="100" autocomplete="off">
+                <div class="wa-rename-modal-btns">
+                    <button class="wa-rename-cancel">Cancelar</button>
+                    <button class="wa-rename-save">Salvar</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+
+        const input     = overlay.querySelector('#renameInput');
+        const btnSave   = overlay.querySelector('.wa-rename-save');
+        const btnCancel = overlay.querySelector('.wa-rename-cancel');
+
+        input.focus();
+        input.select();
+
+        const fechar = () => overlay.remove();
+
+        btnCancel.addEventListener('click', fechar);
+        overlay.addEventListener('click', ev => { if (ev.target === overlay) fechar(); });
+        input.addEventListener('keydown', ev => {
+            if (ev.key === 'Enter')  btnSave.click();
+            if (ev.key === 'Escape') fechar();
+        });
+
+        btnSave.addEventListener('click', async function() {
+            const novoNome = input.value.trim();
+            if (!novoNome) return;
+            btnSave.disabled = true;
+            try {
+                const fd = new FormData();
+                fd.append('_token', token);
+                fd.append('_method', 'PATCH');
+                fd.append('nome', novoNome);
+                fd.append('participant', participant);
+                if (participantAlt) fd.append('participant_alt', participantAlt);
+
+                const resp = await fetch(url, {
+                    method: 'POST',
+                    body: fd,
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                });
+                const data = await resp.json().catch(() => ({}));
+                if (resp.ok && data.success) {
+                    // Atualiza todos os spans com o mesmo participant na tela
+                    document.querySelectorAll(`.wa-sender-renomear[data-participant="${participant}"]`).forEach(el => {
+                        el.dataset.nomeAtual = data.nome;
+                        const icon = el.querySelector('.wa-rename-icon');
+                        // Limpa text nodes e reinsere o novo nome + ícone
+                        el.innerHTML = '';
+                        el.appendChild(document.createTextNode(data.nome + ' '));
+                        if (icon) el.appendChild(icon);
+                        else {
+                            const ic = document.createElement('i');
+                            ic.className = 'bi bi-pencil-fill wa-rename-icon';
+                            el.appendChild(ic);
+                        }
+                    });
+                    fechar();
+                } else {
+                    alert(data.error || 'Erro ao renomear.');
+                    btnSave.disabled = false;
+                }
+            } catch(err) {
+                alert('Erro ao salvar: ' + err.message);
+                btnSave.disabled = false;
+            }
+        });
     });
 
     // ===== ENVIAR TEXTO =====
@@ -2351,8 +2773,14 @@ document.addEventListener('DOMContentLoaded', function () {
             const currMsgs = document.getElementById('waMessages');
             if (newMsgs && currMsgs && newMsgs.innerHTML !== currMsgs.innerHTML) {
                 const atBottom = currMsgs.scrollHeight - currMsgs.scrollTop - currMsgs.clientHeight < 120;
+                const savedScrollTop = currMsgs.scrollTop;
                 currMsgs.innerHTML = newMsgs.innerHTML;
-                if (atBottom || force) scrollBottom(true);
+                if (atBottom || force) {
+                    scrollBottom(true);
+                } else {
+                    // Restaura posição de scroll: innerHTML reset to 0, user estava no meio da conversa
+                    currMsgs.scrollTop = savedScrollTop;
+                }
             }
 
             // Atualiza lista de conversas

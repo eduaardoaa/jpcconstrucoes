@@ -542,7 +542,17 @@
             }
         }
     </style>
+@php
+    $fotoUrl = function ($path) {
+        if (!$path) return null;
 
+        $path = ltrim($path, '/');
+        $path = str_replace('public/', '', $path);
+        $path = str_replace('storage/', '', $path);
+
+        return url('storage/app/public/' . $path);
+    };
+@endphp
     <div class="page-head">
         <div>
             <h2>Solicitações de combustível</h2>
@@ -700,13 +710,13 @@
                                 <td data-label="Painel">
                                     @if ($solicitacao->foto_painel)
                                         <a
-                                            href="{{ asset('storage/' . $solicitacao->foto_painel) }}"
+                                            href="{{ $fotoUrl($solicitacao->foto_painel) }}"
                                             target="_blank"
                                             class="foto-link"
                                             title="Abrir foto do painel"
                                         >
                                             <img
-                                                src="{{ asset('storage/' . $solicitacao->foto_painel) }}"
+                                                src="{{ $fotoUrl($solicitacao->foto_painel) }}"
                                                 alt="Foto do painel"
                                                 class="thumb-foto"
                                             >
@@ -746,8 +756,8 @@
                                            <button
     type="button"
     class="btn-action btn-anexo-soft btn-ver-anexo"
-    data-url-nota="{{ asset('storage/' . $solicitacao->foto_nota) }}"
-    data-url-selfie="{{ asset('storage/' . $solicitacao->foto_selfie) }}"
+    data-url-nota="{{ $fotoUrl($solicitacao->foto_nota) }}"
+    data-url-selfie="{{ $fotoUrl($solicitacao->foto_selfie) }}"
     data-usuario="{{ $solicitacao->usuario->name ?? 'Usuário' }}"
     data-data-envio="{{ $solicitacao->comprovante_enviado_em?->format('d/m/Y H:i') ?? '-' }}"
 >

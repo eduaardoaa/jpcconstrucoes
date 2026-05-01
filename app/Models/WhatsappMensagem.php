@@ -26,10 +26,12 @@ class WhatsappMensagem extends Model
         'enviada_em',
         'apagada_em',
         'editada_em',
+        'reacoes',
     ];
 
     protected $casts = [
         'payload'    => 'array',
+        'reacoes'    => 'array',
         'enviada_em' => 'datetime',
         'apagada_em' => 'datetime',
         'editada_em' => 'datetime',

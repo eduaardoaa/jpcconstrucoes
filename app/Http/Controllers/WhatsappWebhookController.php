@@ -54,15 +54,47 @@ class WhatsappWebhookController extends Controller
         // messages.delete e messages.update NÃO têm data.key — têm data.keyId.
         // Precisam ser tratados ANTES da guarda que exige data.key.
         // ──────────────────────────────────────────────────────────────────────
+        if ($event === 'contacts.upsert') {
+            $items = isset($data[0]) ? $data : [$data];
+            foreach ($items as $c) {
+                $jid    = $c['remoteJid'] ?? null;
+                $picUrl = $c['profilePicUrl'] ?? $c['profilePictureUrl'] ?? null;
+                $pName  = $c['pushName'] ?? null;
+                if (!$jid) continue;
+
+                $updates = [];
+                if ($picUrl)  $updates['foto_url']  = $picUrl;
+                // para grupos, pushName do contacts.upsert é o nome do grupo
+                if ($pName && str_contains($jid, '@g.us')) {
+                    $updates['nome']      = $pName;
+                    $updates['push_name'] = $pName;
+                } elseif ($pName) {
+                    $updates['push_name'] = $pName;
+                }
+
+                if (!empty($updates)) {
+                    WhatsappContato::where('whatsapp_instancia_id', $instancia->id)
+                        ->where('remote_jid', $jid)
+                        ->update($updates);
+                }
+            }
+            return response()->json(['ok' => true]);
+        }
+
         if ($event === 'messages.delete') {
-            $delKey = $data['key'] ?? null;
-            $delId  = is_array($delKey) ? ($delKey['id'] ?? null) : $delKey;
-            if (!$delId) $delId = $data['keyId'] ?? null;
-            if ($delId) {
-                WhatsappMensagem::where('whatsapp_instancia_id', $instancia->id)
-                    ->where('message_id', $delId)
-                    ->whereNull('apagada_em')
-                    ->update(['apagada_em' => now(), 'conteudo' => null]);
+            // Suporta payload como objeto único OU array de deleções.
+            // A Evolution API v2 envia: data.id (não data.key.id nem data.keyId).
+            $deleteItems = isset($data[0]) ? $data : [$data];
+            foreach ($deleteItems as $delItem) {
+                $delId = $delItem['id']                                           // Evolution v2
+                      ?? ($delItem['keyId'] ?? null)                              // fallback keyId
+                      ?? (is_array($delItem['key'] ?? null) ? ($delItem['key']['id'] ?? null) : null); // fallback key.id
+                if ($delId) {
+                    WhatsappMensagem::where('whatsapp_instancia_id', $instancia->id)
+                        ->where('message_id', $delId)
+                        ->whereNull('apagada_em')
+                        ->update(['apagada_em' => now(), 'conteudo' => null]);
+                }
             }
             return response()->json(['ok' => true]);
         }
@@ -189,6 +221,157 @@ class WhatsappWebhookController extends Controller
                     ->whereNull('apagada_em')
                     ->update(['apagada_em' => now(), 'conteudo' => null]);
             }
+            return response()->json(['ok' => true]);
+        }
+
+        // reactionMessage — salva a reação na mensagem original.
+        // Estrutura: reactionMessage.key.id = id da mensagem original, reactionMessage.text = emoji.
+        // String vazia em text = remoção de reação.
+        if (isset($msgObj['reactionMessage'])) {
+            $rm       = $msgObj['reactionMessage'];
+            $targetId = $rm['key']['id'] ?? null;
+            $emoji    = $rm['text'] ?? null; // '' = remover reação
+
+            if ($targetId !== null) {
+                $mensagemAlvo = WhatsappMensagem::where('whatsapp_instancia_id', $instancia->id)
+                    ->where('message_id', $targetId)
+                    ->first();
+
+                if ($mensagemAlvo) {
+                    // reactor: 'me' se fromMe, senão o jid de quem reagiu
+                    $reactor  = $fromMe ? 'me' : ($participant ?? $remoteJid ?? 'contato');
+                    $reacoes  = $mensagemAlvo->reacoes ?? [];
+
+                    // Remove reactor de qualquer emoji anterior (uma reação por pessoa)
+                    foreach ($reacoes as $emo => &$lista) {
+                        $lista = array_values(array_filter($lista, fn ($r) => $r !== $reactor));
+                        if (empty($lista)) unset($reacoes[$emo]);
+                    }
+                    unset($lista);
+
+                    // Adiciona nova reação se não for remoção
+                    if ($emoji !== '' && $emoji !== null) {
+                        $reacoes[$emoji]   = $reacoes[$emoji] ?? [];
+                        $reacoes[$emoji][] = $reactor;
+                    }
+
+                    $mensagemAlvo->update(['reacoes' => empty($reacoes) ? null : $reacoes]);
+                }
+            }
+            return response()->json(['ok' => true]);
+        }
+
+        // messages.upsert com secretEncryptedMessage — notificação de edição E2E cifrada.
+        // O WhatsApp cifra edições de ponta-a-ponta; o Evolution API não expõe o texto
+        // no webhook, mas o processa internamente e armazena no próprio banco.
+        // secretEncType=2 → edição. Buscamos a mensagem atualizada via chat/findMessages.
+        if (isset($msgObj['secretEncryptedMessage'])) {
+            $sem      = $msgObj['secretEncryptedMessage'];
+            $targetId = $sem['targetMessageKey']['id'] ?? null;
+            $encType  = $sem['secretEncType'] ?? null;
+
+            if ($targetId && ($encType === 2 || $encType === '2')) {
+                // Marca como editada imediatamente (garante "Editada" mesmo se a busca falhar)
+                WhatsappMensagem::where('whatsapp_instancia_id', $instancia->id)
+                    ->where('message_id', $targetId)
+                    ->whereNull('apagada_em')
+                    ->update(['editada_em' => now()]);
+
+                // Tenta buscar o novo texto na Evolution API (ela já decifrou e armazenou)
+                try {
+                    $base    = rtrim($instancia->api_url, '/');
+                    $inst    = $instancia->instance_name;
+                    $headers = ['apikey' => $instancia->api_key];
+
+                    $r = Http::withHeaders($headers)->timeout(6)
+                        ->post("{$base}/chat/findMessages/{$inst}", [
+                            'where' => ['key' => ['id' => $targetId]],
+                        ]);
+
+                    Log::debug('secretEncryptedMessage findMessages', [
+                        'targetId' => $targetId,
+                        'status'   => $r->status(),
+                        'body'     => $r->body(),
+                    ]);
+
+                    if ($r->successful()) {
+                        $msgs = $r->json();
+                        // Resposta pode ser array de mensagens ou objeto com messages[]
+                        $lista = isset($msgs['messages']) ? $msgs['messages'] : (isset($msgs[0]) ? $msgs : []);
+                        foreach ($lista as $m) {
+                            $keyId = $m['key']['id'] ?? null;
+                            if ($keyId !== $targetId) continue;
+                            $msgData   = $m['message'] ?? [];
+                            $novoTexto = $msgData['conversation']
+                                      ?? ($msgData['extendedTextMessage']['text'] ?? null);
+                            if ($novoTexto !== null) {
+                                WhatsappMensagem::where('whatsapp_instancia_id', $instancia->id)
+                                    ->where('message_id', $targetId)
+                                    ->whereNull('apagada_em')
+                                    ->update(['conteudo' => $novoTexto, 'editada_em' => now()]);
+                            }
+                            break;
+                        }
+                    }
+                } catch (\Exception $e) {
+                    Log::warning('secretEncryptedMessage: falha ao buscar texto atualizado', [
+                        'targetId' => $targetId,
+                        'erro'     => $e->getMessage(),
+                    ]);
+                }
+            }
+            return response()->json(['ok' => true]);
+        }
+
+        // messages.upsert com editedMessage wrapper — edição recebida da outra pessoa.
+        // Neste caso o payload NÃO usa protocolMessage na raiz: ele vem dentro de
+        // editedMessage.message.protocolMessage. Sem este handler o sistema criaria
+        // uma nova mensagem "fantasma" com tipo 'outro' em vez de atualizar a existente.
+        $editedWrapper = $msgObj['editedMessage']['message'] ?? null;
+        if ($editedWrapper) {
+            Log::debug('editedMessage wrapper recebido', [
+                'instancia'      => $instancia->instance_name,
+                'wrapperKeys'    => array_keys($editedWrapper),
+                'editedWrapper'  => $editedWrapper,
+            ]);
+
+            $innerProto = $editedWrapper['protocolMessage'] ?? null;
+            if ($innerProto) {
+                $innerType  = $innerProto['type'] ?? null;
+                $innerKeyId = $innerProto['key']['id'] ?? null;
+
+                if (($innerType === 14 || $innerType === 'EDIT') && $innerKeyId) {
+                    $editado   = $innerProto['editedMessage'] ?? null;
+                    $novoTexto = $editado['conversation']
+                              ?? ($editado['extendedTextMessage']['text'] ?? null);
+                    if ($novoTexto !== null) {
+                        WhatsappMensagem::where('whatsapp_instancia_id', $instancia->id)
+                            ->where('message_id', $innerKeyId)
+                            ->whereNull('apagada_em')
+                            ->update(['conteudo' => $novoTexto, 'editada_em' => now()]);
+                    }
+                    return response()->json(['ok' => true]);
+                }
+
+                if (($innerType === 0 || $innerType === 'REVOKE') && $innerKeyId) {
+                    WhatsappMensagem::where('whatsapp_instancia_id', $instancia->id)
+                        ->where('message_id', $innerKeyId)
+                        ->whereNull('apagada_em')
+                        ->update(['apagada_em' => now(), 'conteudo' => null]);
+                    return response()->json(['ok' => true]);
+                }
+            }
+
+            // Sem protocolMessage: tenta texto direto em editedMessage.message
+            $textoDirecto = $editedWrapper['conversation']
+                         ?? ($editedWrapper['extendedTextMessage']['text'] ?? null);
+            if ($textoDirecto !== null && $messageId) {
+                WhatsappMensagem::where('whatsapp_instancia_id', $instancia->id)
+                    ->where('message_id', $messageId)
+                    ->whereNull('apagada_em')
+                    ->update(['conteudo' => $textoDirecto, 'editada_em' => now()]);
+            }
+
             return response()->json(['ok' => true]);
         }
 
@@ -931,17 +1114,15 @@ class WhatsappWebhookController extends Controller
             $headers = ['apikey' => $instancia->api_key];
 
             if ($contato->is_grupo) {
-                // Foto de grupo
+                // Foto de grupo via chat/findContacts (group/* endpoints retornam 404 nesta versão)
                 $r = Http::withHeaders($headers)->timeout(6)
-                    ->post("{$base}/group/fetchGroupInfo/{$inst}", ['groupJid' => $contato->remote_jid]);
-                if (!$r->successful()) {
-                    $r = Http::withHeaders($headers)->timeout(6)
-                        ->post("{$base}/group/findGroupInfos/{$inst}", ['groupJid' => $contato->remote_jid]);
-                }
+                    ->post("{$base}/chat/findContacts/{$inst}", [
+                        'where' => ['remoteJid' => $contato->remote_jid],
+                    ]);
                 if ($r->successful()) {
-                    $info = $r->json();
-                    if (isset($info[0])) $info = $info[0];
-                    $fotoUrl = $info['pictureUrl'] ?? $info['profilePictureUrl'] ?? null;
+                    $data    = $r->json();
+                    $c       = (is_array($data) && isset($data[0])) ? $data[0] : (is_array($data) ? $data : []);
+                    $fotoUrl = $c['profilePicUrl'] ?? $c['profilePictureUrl'] ?? null;
                     if ($fotoUrl) {
                         $contato->update(['foto_url' => $fotoUrl]);
                     }

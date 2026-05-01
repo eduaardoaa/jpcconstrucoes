@@ -34,7 +34,6 @@
             color: #fff;
             background: linear-gradient(135deg, #2563eb, #1d4ed8);
             box-shadow: 0 10px 25px rgba(37, 99, 235, .25);
-            cursor: pointer;
         }
 
         .btn-dark-primary:hover {
@@ -55,7 +54,6 @@
             border-radius: 11px;
             padding: 10px 16px;
             font-weight: 600;
-            cursor: pointer;
         }
 
         .btn-secondary-dark:hover {
@@ -69,7 +67,6 @@
             padding: 8px 12px;
             font-weight: 600;
             color: #fff;
-            cursor: pointer;
         }
 
         .btn-info-soft {
@@ -184,12 +181,6 @@
             color: #fecaca;
             background: rgba(127, 29, 29, .24);
             border-color: rgba(248, 113, 113, .14);
-        }
-
-        .alert-warning-custom {
-            color: #fde68a;
-            background: rgba(120, 53, 15, .28);
-            border-color: rgba(251, 191, 36, .16);
         }
 
         .badge-status {
@@ -494,6 +485,7 @@
             overflow: hidden;
         }
 
+        /* Link de GPS na timeline */
         .gps-maps-link {
             color: #93c5fd;
             text-decoration: none;
@@ -533,12 +525,22 @@
     </style>
 
     @php
-        $temVeiculoAtivo = $veiculos->isNotEmpty();
-        $total = $deslocamentos->count();
-        $emAndamento = $deslocamentos->where('status', 'em_andamento')->count();
-        $finalizados = $deslocamentos->where('status', 'finalizado')->count();
-        $etapasTotal = $deslocamentos->sum(fn($d) => $d->etapas->count());
-    @endphp
+    $temVeiculoAtivo = $veiculos->isNotEmpty();
+$total = $deslocamentos->count();
+    $emAndamento = $deslocamentos->where('status', 'em_andamento')->count();
+    $finalizados = $deslocamentos->where('status', 'finalizado')->count();
+    $etapasTotal = $deslocamentos->sum(fn($d) => $d->etapas->count());
+
+    $fotoUrl = function ($path) {
+        if (!$path) return null;
+
+        $path = ltrim($path, '/');
+        $path = str_replace('public/', '', $path);
+        $path = str_replace('storage/', '', $path);
+
+        return url('storage/app/public/' . $path);
+    };
+@endphp
 
     <div class="page-head">
         <div>
@@ -570,12 +572,11 @@
             {{ session('error') }}
         </div>
     @endif
-
     @if (!$temVeiculoAtivo)
-        <div class="alert-custom alert-warning-custom">
-            Nenhum veículo ativo cadastrado. Cadastre ou ative um veículo para registrar deslocamentos.
-        </div>
-    @endif
+    <div class="alert-custom alert-danger-custom">
+        Nenhum veículo ativo cadastrado. Cadastre ou ative um veículo para registrar deslocamentos.
+    </div>
+@endif
 
     @if ($errors->any())
         <div class="alert-custom alert-danger-custom">
@@ -590,18 +591,18 @@
 
     <div class="grid-top">
         <div class="dark-card">
-            <div class="dark-card-header">
-                <h3>Veículos disponíveis</h3>
-                <p>Escolha o veículo no momento de registrar a saída.</p>
-            </div>
-            <div class="dark-card-body">
-                <div class="vehicle-highlight">
-                    <strong>{{ $veiculos->count() }} veículo(s) ativo(s)</strong>
-                    <span>A saída não depende mais de veículo vinculado ao usuário.</span>
-                    <span>Selecione o veículo desejado dentro do formulário.</span>
-                </div>
-            </div>
+    <div class="dark-card-header">
+        <h3>Veículos disponíveis</h3>
+        <p>Escolha o veículo no momento de registrar a saída.</p>
+    </div>
+    <div class="dark-card-body">
+        <div class="vehicle-highlight">
+            <strong>{{ $veiculos->count() }} veículo(s) ativo(s)</strong>
+            <span>A saída não depende mais de veículo vinculado ao usuário.</span>
+            <span>Selecione o veículo desejado dentro do formulário.</span>
         </div>
+    </div>
+</div>
 
         <div class="dark-card">
             <div class="dark-card-header">
@@ -636,7 +637,6 @@
             <h3>Histórico</h3>
             <p>Acompanhe suas saídas, paradas e chegadas.</p>
         </div>
-
         <div class="dark-card-body">
             @if ($deslocamentos->isEmpty())
                 <div class="empty-state">
@@ -652,12 +652,7 @@
                                     {{ $deslocamento->motivo ?: 'Deslocamento sem motivo informado' }}
                                 </div>
                                 <div class="deslocamento-subtitle">
-                                    Veículo:
-                                    {{ $deslocamento->veiculo->placa ?? '—' }}
-                                    @if ($deslocamento->veiculo)
-                                        —
-                                        {{ trim(($deslocamento->veiculo->marca ?? '') . ' ' . ($deslocamento->veiculo->modelo ?? '')) }}
-                                    @endif
+                                    Veículo: {{ $deslocamento->veiculo->placa ?? '—' }}
                                     • Etapas: {{ $deslocamento->etapas->count() }}
                                 </div>
                             </div>
@@ -680,7 +675,7 @@
                         </div>
 
                         <div class="timeline">
-                            @foreach ($deslocamento->etapas->sortBy('ordem') as $etapa)
+                            @foreach ($deslocamento->etapas as $etapa)
                                 <div class="timeline-item">
                                     <div class="timeline-type">
                                         {{ strtoupper($etapa->tipo_etapa) }}
@@ -688,15 +683,8 @@
 
                                     <div class="timeline-content">
                                         <strong>{{ $etapa->local_etapa }}</strong>
-
-                                        <span>
-                                            Data: {{ optional($etapa->data_etapa)->format('d/m/Y') }}
-                                            • Hora: {{ $etapa->hora_etapa }}
-                                        </span>
-
-                                        <span>
-                                            KM: {{ number_format((float) $etapa->km_etapa, 1, ',', '.') }}
-                                        </span>
+                                        <span>Data: {{ optional($etapa->data_etapa)->format('d/m/Y') }} • Hora: {{ $etapa->hora_etapa }}</span>
+                                        <span>KM: {{ number_format((float) $etapa->km_etapa, 1, ',', '.') }}</span>
 
                                         @if(!is_null($etapa->latitude) && !is_null($etapa->longitude))
                                             <span>
@@ -717,10 +705,10 @@
                                         @endif
 
                                         @if ($etapa->foto_painel)
-                                            <a href="{{ asset('storage/' . $etapa->foto_painel) }}" target="_blank">
-                                                <img src="{{ asset('storage/' . $etapa->foto_painel) }}" alt="Foto painel" class="thumb-foto">
-                                            </a>
-                                        @endif
+    <a href="{{ $fotoUrl($etapa->foto_painel) }}" target="_blank">
+        <img src="{{ $fotoUrl($etapa->foto_painel) }}" alt="Foto painel" class="thumb-foto">
+    </a>
+@endif
                                     </div>
                                 </div>
                             @endforeach
@@ -759,28 +747,27 @@
 
                     <div class="form-grid">
                         <div class="form-group full">
-                            <label class="form-label">Veículo</label>
-                            <select name="veiculo_id" class="form-control-custom" required>
-                                <option value="">Selecione o veículo</option>
+    <label class="form-label">Veículo</label>
+    <select name="veiculo_id" class="form-control-custom" required>
+        <option value="">Selecione o veículo</option>
 
-                                @foreach ($veiculos as $veiculoOption)
-                                    <option
-                                        value="{{ $veiculoOption->id }}"
-                                        {{ old('veiculo_id') == $veiculoOption->id ? 'selected' : '' }}
-                                    >
-                                        {{ $veiculoOption->placa }}
-                                        —
-                                        {{ trim(($veiculoOption->marca ?? '') . ' ' . ($veiculoOption->modelo ?? '')) }}
-                                        @if ($veiculoOption->ano)
-                                            / {{ $veiculoOption->ano }}
-                                        @endif
-                                        —
-                                        KM: {{ number_format((float) $veiculoOption->km_atual, 1, ',', '.') }}
-                                    </option>
-                                @endforeach
-                            </select>
-                        </div>
-
+        @foreach ($veiculos as $veiculoOption)
+            <option
+                value="{{ $veiculoOption->id }}"
+                {{ old('veiculo_id') == $veiculoOption->id ? 'selected' : '' }}
+            >
+                {{ $veiculoOption->placa }}
+                —
+                {{ trim(($veiculoOption->marca ?? '') . ' ' . ($veiculoOption->modelo ?? '')) }}
+                @if ($veiculoOption->ano)
+                    / {{ $veiculoOption->ano }}
+                @endif
+                —
+                KM: {{ number_format((float) $veiculoOption->km_atual, 1, ',', '.') }}
+            </option>
+        @endforeach
+    </select>
+</div>
                         <div class="form-group full">
                             <label class="form-label">Local de saída</label>
                             <input type="text" name="local_saida" id="local_saida" class="form-control-custom" value="{{ old('local_saida') }}" placeholder="Digite o endereço de saída..." required>
@@ -1015,17 +1002,15 @@
     </div>
 
     <script>
-        const rotaParadaTemplate = @json(route('deslocamentos.parada.store', ['deslocamento' => '__ID__']));
-        const rotaChegadaTemplate = @json(route('deslocamentos.chegada.store', ['deslocamento' => '__ID__']));
-
         let cameraEtapaStream = null;
         let cameraEtapaAtual = 'environment';
         let tipoEtapaAtual = null;
 
+        // ─── Modais ────────────────────────────────────────────────────────────
+
         function abrirModal(id) {
             const modal = document.getElementById(id);
             if (!modal) return;
-
             modal.classList.add('is-open');
             document.body.classList.add('modal-open');
         }
@@ -1033,19 +1018,18 @@
         function fecharModal(id) {
             const modal = document.getElementById(id);
             if (!modal) return;
-
             modal.classList.remove('is-open');
-
             if (!document.querySelector('.custom-modal.is-open')) {
                 document.body.classList.remove('modal-open');
             }
         }
 
+        // ─── Data/Hora local ───────────────────────────────────────────────────
+
         function agoraLocal() {
             const agora = new Date();
             const tzOffset = agora.getTimezoneOffset() * 60000;
             const localISO = new Date(agora - tzOffset).toISOString();
-
             return {
                 data: localISO.slice(0, 10),
                 hora: localISO.slice(11, 16)
@@ -1056,10 +1040,11 @@
             const atual = agoraLocal();
             const campoData = document.getElementById(`data_${prefixo}`);
             const campoHora = document.getElementById(`hora_${prefixo}`);
-
             if (campoData) campoData.value = atual.data;
             if (campoHora) campoHora.value = atual.hora;
         }
+
+        // ─── Captura apenas GPS (sem preencher o campo de local) ───────────────
 
         async function capturarLocalizacaoEEndereco(prefixo) {
             if (!navigator.geolocation) return;
@@ -1086,6 +1071,8 @@
             );
         }
 
+        // ─── Abrir modais ──────────────────────────────────────────────────────
+
         function abrirModalSaida() {
             preencherDataHoraOculta('saida');
             capturarLocalizacaoEEndereco('saida');
@@ -1094,10 +1081,7 @@
 
         function abrirModalParada(deslocamentoId) {
             const form = document.getElementById('formParada');
-            if (form) {
-                form.action = rotaParadaTemplate.replace('__ID__', deslocamentoId);
-            }
-
+            form.action = `/abastecimento/meus-deslocamentos/${deslocamentoId}/parada`;
             preencherDataHoraOculta('parada');
             capturarLocalizacaoEEndereco('parada');
             abrirModal('modalParada');
@@ -1105,14 +1089,13 @@
 
         function abrirModalChegada(deslocamentoId) {
             const form = document.getElementById('formChegada');
-            if (form) {
-                form.action = rotaChegadaTemplate.replace('__ID__', deslocamentoId);
-            }
-
+            form.action = `/abastecimento/meus-deslocamentos/${deslocamentoId}/chegada`;
             preencherDataHoraOculta('chegada');
             capturarLocalizacaoEEndereco('chegada');
             abrirModal('modalChegada');
         }
+
+        // ─── Câmera ────────────────────────────────────────────────────────────
 
         async function abrirCameraEtapa(tipo) {
             tipoEtapaAtual = tipo;
@@ -1132,7 +1115,7 @@
                     return;
                 }
 
-                if (status) status.textContent = 'Abrindo câmera...';
+                status.textContent = 'Abrindo câmera...';
 
                 cameraEtapaStream = await navigator.mediaDevices.getUserMedia({
                     video: { facingMode: { ideal: facingMode } },
@@ -1140,21 +1123,18 @@
                 });
 
                 cameraEtapaAtual = facingMode;
+                video.srcObject = cameraEtapaStream;
 
-                if (video) {
-                    video.srcObject = cameraEtapaStream;
-
-                    if (cameraEtapaAtual === 'user') {
-                        video.style.transform = 'scaleX(-1)';
-                        if (status) status.textContent = 'Câmera frontal ativa.';
-                    } else {
-                        video.style.transform = 'scaleX(1)';
-                        if (status) status.textContent = 'Câmera traseira ativa.';
-                    }
+                if (cameraEtapaAtual === 'user') {
+                    video.style.transform = 'scaleX(-1)';
+                    status.textContent = 'Câmera frontal ativa.';
+                } else {
+                    video.style.transform = 'scaleX(1)';
+                    status.textContent = 'Câmera traseira ativa.';
                 }
             } catch (error) {
                 console.error(error);
-                if (status) status.textContent = 'Não foi possível acessar a câmera.';
+                status.textContent = 'Não foi possível acessar a câmera.';
                 alert('Não foi possível acessar a câmera. Verifique a permissão do navegador.');
             }
         }
@@ -1200,11 +1180,6 @@
                 return;
             }
 
-            if (!tipoEtapaAtual) {
-                alert('Tipo da etapa não identificado.');
-                return;
-            }
-
             const larguraMaxima = 1600;
             let largura = video.videoWidth;
             let altura = video.videoHeight;
@@ -1228,15 +1203,12 @@
 
             const base64 = canvas.toDataURL('image/jpeg', 0.88);
 
-            const campoBase64 = document.getElementById(`foto_${tipoEtapaAtual}_base64`);
-            const campoNome = document.getElementById(`foto_${tipoEtapaAtual}_nome`);
-            const campoMime = document.getElementById(`foto_${tipoEtapaAtual}_mime`);
+            document.getElementById(`foto_${tipoEtapaAtual}_base64`).value = base64;
+            document.getElementById(`foto_${tipoEtapaAtual}_nome`).value = `${tipoEtapaAtual}-` + Date.now() + '.jpg';
+            document.getElementById(`foto_${tipoEtapaAtual}_mime`).value = 'image/jpeg';
+
             const previewBox = document.getElementById(`preview_${tipoEtapaAtual}_box`);
             const previewImg = document.getElementById(`preview_${tipoEtapaAtual}_img`);
-
-            if (campoBase64) campoBase64.value = base64;
-            if (campoNome) campoNome.value = `${tipoEtapaAtual}-` + Date.now() + '.jpg';
-            if (campoMime) campoMime.value = 'image/jpeg';
 
             if (previewImg) previewImg.src = base64;
             if (previewBox) previewBox.classList.add('active');
@@ -1246,17 +1218,19 @@
 
         function limparFotoEtapa(tipo) {
             const campoBase64 = document.getElementById(`foto_${tipo}_base64`);
-            const campoNome = document.getElementById(`foto_${tipo}_nome`);
-            const campoMime = document.getElementById(`foto_${tipo}_mime`);
-            const previewBox = document.getElementById(`preview_${tipo}_box`);
-            const previewImg = document.getElementById(`preview_${tipo}_img`);
+            const campoNome   = document.getElementById(`foto_${tipo}_nome`);
+            const campoMime   = document.getElementById(`foto_${tipo}_mime`);
+            const previewBox  = document.getElementById(`preview_${tipo}_box`);
+            const previewImg  = document.getElementById(`preview_${tipo}_img`);
 
             if (campoBase64) campoBase64.value = '';
-            if (campoNome) campoNome.value = '';
-            if (campoMime) campoMime.value = 'image/jpeg';
-            if (previewImg) previewImg.src = '';
-            if (previewBox) previewBox.classList.remove('active');
+            if (campoNome)   campoNome.value   = '';
+            if (campoMime)   campoMime.value   = 'image/jpeg';
+            if (previewImg)  previewImg.src    = '';
+            if (previewBox)  previewBox.classList.remove('active');
         }
+
+        // ─── Geocodificação reversa para a timeline ────────────────────────────
 
         async function geocodificarReverso(lat, lng) {
             try {
@@ -1264,23 +1238,18 @@
                     `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&addressdetails=1`,
                     { headers: { 'Accept': 'application/json' } }
                 );
-
                 if (!resp.ok) throw new Error('Erro');
-
                 const data = await resp.json();
                 const a = data.address || {};
-                const partes = [];
 
+                const partes = [];
                 if (a.road) {
                     partes.push(a.house_number ? `${a.road}, ${a.house_number}` : a.road);
                 }
-
                 const bairro = a.suburb || a.neighbourhood || a.quarter;
                 if (bairro) partes.push(bairro);
-
                 const cidade = a.city || a.town || a.village || a.municipality;
                 if (cidade) partes.push(cidade);
-
                 if (a.postcode) partes.push(a.postcode);
 
                 return partes.length ? partes.join(' – ') : `${lat}, ${lng}`;
@@ -1293,12 +1262,12 @@
             const links = document.querySelectorAll('.gps-maps-link');
 
             for (const link of links) {
-                const lat = link.dataset.lat;
-                const lng = link.dataset.lng;
+                const lat  = link.dataset.lat;
+                const lng  = link.dataset.lng;
                 const span = link.querySelector('.gps-endereco-texto');
-
                 if (!span) continue;
 
+                // Delay de 350ms entre requisições para não sobrecarregar o Nominatim
                 await new Promise(r => setTimeout(r, 350));
 
                 const endereco = await geocodificarReverso(lat, lng);
@@ -1306,24 +1275,23 @@
             }
         });
 
+        // ─── Teclado e validações ──────────────────────────────────────────────
+
         document.addEventListener('keydown', function(e) {
             if (e.key === 'Escape') {
                 if (document.getElementById('modalCameraEtapa')?.classList.contains('is-open')) {
                     fecharCameraEtapa();
                     return;
                 }
-
                 document.querySelectorAll('.custom-modal.is-open').forEach(modal => {
                     modal.classList.remove('is-open');
                 });
-
                 document.body.classList.remove('modal-open');
             }
         });
 
         document.getElementById('formSaida')?.addEventListener('submit', function(e) {
             preencherDataHoraOculta('saida');
-
             if (!document.getElementById('foto_saida_base64')?.value) {
                 e.preventDefault();
                 alert('Tire a foto do painel antes de registrar a saída.');
@@ -1332,13 +1300,6 @@
 
         document.getElementById('formParada')?.addEventListener('submit', function(e) {
             preencherDataHoraOculta('parada');
-
-            if (!this.action) {
-                e.preventDefault();
-                alert('Não foi possível identificar o deslocamento da parada.');
-                return;
-            }
-
             if (!document.getElementById('foto_parada_base64')?.value) {
                 e.preventDefault();
                 alert('Tire a foto do painel antes de registrar a parada.');
@@ -1347,18 +1308,13 @@
 
         document.getElementById('formChegada')?.addEventListener('submit', function(e) {
             preencherDataHoraOculta('chegada');
-
-            if (!this.action) {
-                e.preventDefault();
-                alert('Não foi possível identificar o deslocamento da chegada.');
-                return;
-            }
-
             if (!document.getElementById('foto_chegada_base64')?.value) {
                 e.preventDefault();
                 alert('Tire a foto do painel antes de registrar a chegada.');
             }
         });
+
+        // ─── Reabre modais após redirect ───────────────────────────────────────
 
         @if(session('open_modal_saida'))
             document.addEventListener('DOMContentLoaded', function () {

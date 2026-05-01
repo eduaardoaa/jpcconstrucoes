@@ -210,7 +210,17 @@
             .desl-card { padding:14px; }
         }
     </style>
+@php
+    $fotoUrl = function ($path) {
+        if (!$path) return null;
 
+        $path = ltrim($path, '/');
+        $path = str_replace('public/', '', $path);
+        $path = str_replace('storage/', '', $path);
+
+        return url('storage/app/public/' . $path);
+    };
+@endphp
     <div class="page-head">
         <div>
             <h2>Controle de deslocamento</h2>
@@ -437,9 +447,9 @@
                                                     @endif
 
                                                     @if ($etapa->foto_painel)
-                                                        <a href="{{ asset('storage/' . $etapa->foto_painel) }}" target="_blank">
-                                                            <img src="{{ asset('storage/' . $etapa->foto_painel) }}" alt="Foto painel" class="thumb-foto">
-                                                        </a>
+                                                        <a href="{{ $fotoUrl($etapa->foto_painel) }}" target="_blank">
+    <img src="{{ $fotoUrl($etapa->foto_painel) }}" alt="Foto painel" class="thumb-foto">
+</a>
                                                     @endif
                                                 </div>
                                             @endforeach
@@ -511,9 +521,9 @@
                                         @endif
 
                                         @if ($etapa->foto_painel)
-                                            <a href="{{ asset('storage/' . $etapa->foto_painel) }}" target="_blank">
-                                                <img src="{{ asset('storage/' . $etapa->foto_painel) }}" alt="Foto painel" class="thumb-foto">
-                                            </a>
+                                            <a href="{{ $fotoUrl($etapa->foto_painel) }}" target="_blank">
+    <img src="{{ $fotoUrl($etapa->foto_painel) }}" alt="Foto painel" class="thumb-foto">
+</a>
                                         @endif
                                     </div>
                                 @endforeach
