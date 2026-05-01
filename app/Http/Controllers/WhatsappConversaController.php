@@ -47,6 +47,7 @@ class WhatsappConversaController extends Controller
         if ($instanciaSelecionada) {
             $conversas = WhatsappConversa::with(['contato', 'atendente'])
                 ->where('whatsapp_instancia_id', $instanciaSelecionada->id)
+                ->orderByDesc('fixado')
                 ->orderByDesc('ultima_mensagem_em')
                 ->orderByDesc('updated_at')
                 ->get();
@@ -255,6 +256,11 @@ class WhatsappConversaController extends Controller
                 'ultima_mensagem_em' => now(),
             ]);
 
+            // Busca foto de perfil automaticamente na primeira mensagem enviada
+            if ($contato && !$contato->foto_url) {
+                $this->buscarFotoContato($contato, $instancia);
+            }
+
             return response()->json(['success' => true]);
         } catch (\Throwable $e) {
             Log::error('Erro em enviarTexto', [
@@ -274,59 +280,53 @@ class WhatsappConversaController extends Controller
 
         $this->validarAcessoConversa($conversa);
 
-        $instancia = WhatsappInstancia::find($mensagem->whatsapp_instancia_id);
-
-        // Tenta apagar no WhatsApp apenas para mensagens de saída
-        $erroWhatsapp = null;
-        if ($mensagem->direcao === 'saida' && $instancia && !$mensagem->apagada_em) {
-            try {
-                $pl   = is_array($mensagem->payload) ? $mensagem->payload : [];
-                $data = $pl['data'] ?? $pl;
-                $key  = $data['key'] ?? null;
-
-                Log::info('apagarMensagem: key extraído', [
-                    'mensagem_id' => $mensagem->id,
-                    'key'         => $key,
-                    'pl_keys'     => array_keys($pl),
-                ]);
-
-                if ($key && isset($key['id'])) {
-                    $apiUrl = rtrim($instancia->api_url, '/');
-                    $resp = Http::withHeaders(['apikey' => $instancia->api_key])
-                        ->timeout(10)
-                        ->delete(
-                            "{$apiUrl}/message/deleteMessage/{$instancia->instance_name}",
-                            [
-                                'id'        => $key['id'],
-                                'remoteJid' => $key['remoteJid'] ?? '',
-                                'fromMe'    => true,
-                            ]
-                        );
-
-                    Log::info('apagarMensagem: resposta Evolution API', [
-                        'status' => $resp->status(),
-                        'body'   => $resp->body(),
-                    ]);
-
-                    if (!$resp->successful()) {
-                        $erroWhatsapp = $resp->body();
-                    }
-                }
-            } catch (\Throwable $e) {
-                Log::warning('apagarMensagem: exceção ao chamar Evolution API', ['erro' => $e->getMessage()]);
-                $erroWhatsapp = $e->getMessage();
-            }
+        // Mensagens recebidas: apaga só localmente (sem chamar API)
+        if ($mensagem->direcao === 'entrada') {
+            $mensagem->update(['apagada_em' => now(), 'conteudo' => null]);
+            return response()->json(['success' => true]);
         }
 
-        $mensagem->update([
-            'apagada_em' => now(),
-            'conteudo'   => null,
-        ]);
+        // Mensagens já apagadas: apaga localmente sem chamar API
+        if ($mensagem->apagada_em) {
+            return response()->json(['success' => true]);
+        }
 
-        return response()->json([
-            'success'      => true,
-            'erroWhatsapp' => $erroWhatsapp,
-        ]);
+        $instancia = WhatsappInstancia::find($mensagem->whatsapp_instancia_id);
+        if (!$instancia) {
+            $mensagem->update(['apagada_em' => now(), 'conteudo' => null]);
+            return response()->json(['success' => true]);
+        }
+
+        $pl  = is_array($mensagem->payload) ? $mensagem->payload : [];
+        $key = ($pl['data'] ?? $pl)['key'] ?? null;
+
+        if (!$key || !isset($key['id'])) {
+            return response()->json(['error' => 'Não foi possível identificar a mensagem no WhatsApp.'], 422);
+        }
+
+        try {
+            $resp = Http::withHeaders(['apikey' => $instancia->api_key, 'Content-Type' => 'application/json'])
+                ->timeout(10)
+                ->withBody(json_encode([
+                    'id'        => $key['id'],
+                    'remoteJid' => $key['remoteJid'] ?? '',
+                    'fromMe'    => true,
+                ]), 'application/json')
+                ->delete(rtrim($instancia->api_url, '/') . '/chat/deleteMessageForEveryone/' . $instancia->instance_name);
+
+            if (!$resp->successful()) {
+                return response()->json([
+                    'error' => 'Não foi possível apagar no WhatsApp. O tempo limite de exclusão pode ter expirado.',
+                ], 422);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('apagarMensagem: exceção ao chamar Evolution API', ['erro' => $e->getMessage()]);
+            return response()->json(['error' => 'Erro ao conectar com o WhatsApp: ' . $e->getMessage()], 500);
+        }
+
+        $mensagem->update(['apagada_em' => now(), 'conteudo' => null]);
+
+        return response()->json(['success' => true]);
     }
 
     public function enviarMidia(Request $request, WhatsappConversa $conversa)
@@ -466,6 +466,10 @@ class WhatsappConversaController extends Controller
             'ultima_mensagem_preview' => $legendaOriginal ?: $previewMidia,
             'ultima_mensagem_em'      => now(),
         ]);
+
+        if ($contato && !$contato->foto_url) {
+            $this->buscarFotoContato($contato, $instancia);
+        }
 
         if ($request->ajax()) {
             return response()->json(['success' => true]);
@@ -639,6 +643,40 @@ class WhatsappConversaController extends Controller
             'conversa_id'  => $conversa->id,
             'instancia_id' => $instancia->id,
         ]);
+    }
+
+    public function buscarContatos(Request $request)
+    {
+        $instanciaId = (int) $request->instancia_id;
+        $q = trim($request->q ?? '');
+
+        $usuario   = auth()->user();
+        $instancia = WhatsappInstancia::findOrFail($instanciaId);
+
+        if (!$usuario->isAdmin()) {
+            $temAcesso = $usuario->whatsappInstancias()
+                ->where('whatsapp_instancias.id', $instancia->id)
+                ->exists();
+            abort_unless($temAcesso, 403);
+        }
+
+        $contatos = WhatsappContato::where('whatsapp_instancia_id', $instanciaId)
+            ->where('is_grupo', false)
+            ->where(function ($query) use ($q) {
+                $query->where('nome', 'like', "%{$q}%")
+                      ->orWhere('push_name', 'like', "%{$q}%")
+                      ->orWhere('numero', 'like', "%{$q}%");
+            })
+            ->orderByRaw("COALESCE(nome, push_name) ASC")
+            ->limit(15)
+            ->get(['id', 'nome', 'push_name', 'numero', 'remote_jid'])
+            ->map(fn($c) => [
+                'id'     => $c->id,
+                'nome'   => $c->nome_exibicao,
+                'numero' => $c->numero,
+            ]);
+
+        return response()->json($contatos);
     }
 
     public function sincronizar(WhatsappInstancia $instancia, WhatsappEvolutionSyncService $sync)
@@ -1074,7 +1112,105 @@ class WhatsappConversaController extends Controller
         return match ($tipoApi) {
             'image'    => 'imagem',
             'document' => 'documento',
-            default    => $tipoApi, // 'audio' e 'video' são iguais nos dois idiomas
+            default    => $tipoApi,
         };
+    }
+
+    public function fixarConversa(Request $request, WhatsappConversa $conversa)
+    {
+        $this->validarAcessoConversa($conversa);
+        $conversa->update(['fixado' => !$conversa->fixado]);
+        return response()->json(['success' => true, 'fixado' => $conversa->fixado]);
+    }
+
+    public function editarMensagem(Request $request, WhatsappMensagem $mensagem)
+    {
+        $conversa = $mensagem->conversa;
+        if (!$conversa) abort(404);
+        $this->validarAcessoConversa($conversa);
+
+        if ($mensagem->direcao !== 'saida') {
+            return response()->json(['error' => 'Só é possível editar mensagens enviadas por você.'], 422);
+        }
+        if ($mensagem->apagada_em) {
+            return response()->json(['error' => 'Não é possível editar uma mensagem apagada.'], 422);
+        }
+        if ($mensagem->tipo !== 'texto') {
+            return response()->json(['error' => 'Só é possível editar mensagens de texto.'], 422);
+        }
+
+        $request->validate(['conteudo' => ['required', 'string', 'max:5000']]);
+        $novoTexto = trim($request->conteudo);
+
+        $instancia = WhatsappInstancia::findOrFail($mensagem->whatsapp_instancia_id);
+        $contato   = $conversa->contato;
+        $numero    = $this->resolverNumeroParaEnvio($contato, $instancia);
+
+        // Payload do key original para a Evolution API
+        $payloadOriginal = $mensagem->payload ?? [];
+        $keyOriginal = data_get($payloadOriginal, 'data.key')
+                    ?? data_get($payloadOriginal, 'key')
+                    ?? ['id' => $mensagem->message_id, 'fromMe' => true, 'remoteJid' => $contato->remote_jid];
+
+        try {
+            $response = Http::withHeaders(['apikey' => $instancia->api_key])
+                ->timeout(30)
+                ->post(
+                    rtrim($instancia->api_url, '/') . '/chat/updateMessage/' . $instancia->instance_name,
+                    [
+                        'number' => $numero,
+                        'key'    => $keyOriginal,
+                        'text'   => $novoTexto,
+                    ]
+                );
+
+            if (!$response->successful()) {
+                return response()->json([
+                    'error' => 'Não foi possível editar no WhatsApp. O tempo limite de edição pode ter expirado.',
+                ], 422);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('editarMensagem: exceção ao chamar Evolution API', ['erro' => $e->getMessage()]);
+            return response()->json(['error' => 'Erro ao conectar com o WhatsApp: ' . $e->getMessage()], 500);
+        }
+
+        $mensagem->update([
+            'conteudo'   => $novoTexto,
+            'editada_em' => now(),
+        ]);
+
+        return response()->json(['success' => true]);
+    }
+
+    private function buscarFotoContato(WhatsappContato $contato, WhatsappInstancia $instancia): void
+    {
+        try {
+            $base    = rtrim($instancia->api_url, '/');
+            $inst    = $instancia->instance_name;
+            $headers = ['apikey' => $instancia->api_key];
+
+            if ($contato->is_grupo) {
+                $r = Http::withHeaders($headers)->timeout(6)
+                    ->post("{$base}/group/fetchGroupInfo/{$inst}", ['groupJid' => $contato->remote_jid]);
+                if (!$r->successful()) {
+                    $r = Http::withHeaders($headers)->timeout(6)
+                        ->post("{$base}/group/findGroupInfos/{$inst}", ['groupJid' => $contato->remote_jid]);
+                }
+                if ($r->successful()) {
+                    $info    = $r->json();
+                    if (isset($info[0])) $info = $info[0];
+                    $fotoUrl = $info['pictureUrl'] ?? $info['profilePictureUrl'] ?? null;
+                    if ($fotoUrl) $contato->update(['foto_url' => $fotoUrl]);
+                }
+            } else {
+                $r = Http::withHeaders($headers)->timeout(6)
+                    ->post("{$base}/chat/fetchProfile/{$inst}", ['number' => $contato->remote_jid]);
+                if ($r->successful()) {
+                    $data    = $r->json();
+                    $fotoUrl = $data['profilePictureUrl'] ?? $data['profilePicUrl'] ?? $data['picture'] ?? null;
+                    if ($fotoUrl) $contato->update(['foto_url' => $fotoUrl]);
+                }
+            }
+        } catch (\Throwable) { }
     }
 }

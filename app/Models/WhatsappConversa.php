@@ -15,6 +15,7 @@ class WhatsappConversa extends Model
         'whatsapp_contato_id',
         'atendente_id',
         'status',
+        'fixado',
         'nao_lidas',
         'ultima_mensagem_em',
         'ultima_mensagem_preview',
@@ -22,8 +23,9 @@ class WhatsappConversa extends Model
     ];
 
     protected $casts = [
-        'ultima_mensagem_em' => 'datetime',
+        'ultima_mensagem_em'  => 'datetime',
         'enviar_identificacao' => 'boolean',
+        'fixado'              => 'boolean',
     ];
 
     public function instancia(): BelongsTo

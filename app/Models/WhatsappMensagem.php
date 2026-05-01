@@ -25,12 +25,14 @@ class WhatsappMensagem extends Model
         'status_envio',
         'enviada_em',
         'apagada_em',
+        'editada_em',
     ];
 
     protected $casts = [
         'payload'    => 'array',
         'enviada_em' => 'datetime',
         'apagada_em' => 'datetime',
+        'editada_em' => 'datetime',
     ];
 
     public function instancia(): BelongsTo

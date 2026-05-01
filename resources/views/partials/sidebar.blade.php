@@ -128,6 +128,10 @@
             request()->routeIs('abastecimento.painel.*') ||
             request()->routeIs('abastecimento.solicitacoes.*') ||
             request()->routeIs('deslocamentos.*');
+
+        $whatsappOpen = request()->routeIs('whatsapp.*');
+        $podeWhatsappWeb = auth()->user()->podeAcessarWhatsapp();
+        $podeInstancias  = auth()->user()->hasPermissao('gerenciar_whatsapp');
     @endphp
 
     <nav class="sidebar-nav">
@@ -291,6 +295,45 @@
         <span class="sidebar-link-text">Meus deslocamentos</span>
     </a>
 @endif
+                            </div>
+                        </div>
+                    </div>
+                @endif
+
+                {{-- SANFONA WHATSAPP --}}
+                @if($podeWhatsappWeb || $podeInstancias)
+                    <div class="sidebar-accordion-item">
+                        <button
+                            type="button"
+                            class="sidebar-accordion-toggle {{ $whatsappOpen ? 'active' : '' }}"
+                            onclick="toggleSidebarAccordion('accordion-whatsapp', this)"
+                        >
+                            <span class="sidebar-accordion-left">
+                                <span class="sidebar-accordion-icon">
+                                    <i class="bi bi-whatsapp"></i>
+                                </span>
+                                <span class="sidebar-accordion-label">WhatsApp</span>
+                            </span>
+                            <span class="sidebar-accordion-arrow">
+                                <i class="bi bi-chevron-down"></i>
+                            </span>
+                        </button>
+
+                        <div id="accordion-whatsapp" class="sidebar-accordion-content {{ $whatsappOpen ? 'open' : '' }}">
+                            <div class="sidebar-subnav">
+                                @if($podeWhatsappWeb)
+                                    <a href="{{ route('whatsapp.conversas.index') }}" class="sidebar-link {{ request()->routeIs('whatsapp.conversas.*') ? 'active' : '' }}">
+                                        <span class="sidebar-link-icon"><i class="bi bi-chat-dots-fill"></i></span>
+                                        <span class="sidebar-link-text">WhatsApp Web</span>
+                                    </a>
+                                @endif
+
+                                @if($podeInstancias)
+                                    <a href="{{ route('whatsapp.instancias.index') }}" class="sidebar-link {{ request()->routeIs('whatsapp.instancias.*') ? 'active' : '' }}">
+                                        <span class="sidebar-link-icon"><i class="bi bi-phone-fill"></i></span>
+                                        <span class="sidebar-link-text">Instâncias</span>
+                                    </a>
+                                @endif
                             </div>
                         </div>
                     </div>

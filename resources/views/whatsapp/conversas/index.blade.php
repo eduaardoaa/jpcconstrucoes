@@ -188,6 +188,20 @@ height: calc(100vh - 125px);    display: flex;
         margin-left: 6px;
     }
 
+    .wa-pin-icon { color: var(--wa-text-muted); font-size: 11px; margin-left: 4px; flex-shrink: 0; }
+    .wa-chat-tile.fixado { background: rgba(0,168,132,0.06); }
+    .wa-edited-tag { font-size: 11px; color: var(--wa-text-muted); font-style: italic; }
+    .wa-msg-action-btn.edit { color: var(--wa-blue); }
+    /* Botão de fixar flutuante na tile */
+    .wa-chat-tile { position: relative; }
+    .wa-pin-btn {
+        display: none; position: absolute; right: 8px; top: 8px;
+        background: rgba(11,20,26,0.85); border: none; border-radius: 6px;
+        color: var(--wa-text-muted); cursor: pointer; padding: 3px 6px; font-size: 13px;
+    }
+    .wa-chat-tile:hover .wa-pin-btn { display: block; }
+    .wa-chat-tile.fixado .wa-pin-btn { display: block; color: var(--wa-green); }
+
     .wa-group-tag {
         font-size: 10px;
         color: var(--wa-green);
@@ -345,6 +359,33 @@ height: calc(100vh - 125px);    display: flex;
     .wa-msg-media .wa-doc-link:hover { background: rgba(255,255,255,0.1); }
     .wa-msg-media .wa-doc-link i { font-size: 24px; color: var(--wa-blue); }
 
+    /* Card de contato compartilhado */
+    .wa-contact-card {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        background: rgba(255,255,255,0.06);
+        border-radius: 10px;
+        padding: 10px 14px;
+        min-width: 200px;
+        max-width: 280px;
+    }
+    .wa-contact-card__avatar {
+        width: 40px; height: 40px; border-radius: 50%;
+        background: var(--wa-blue);
+        display: flex; align-items: center; justify-content: center;
+        font-size: 18px; color: #fff; flex-shrink: 0;
+    }
+    .wa-contact-card__name { font-weight: 600; font-size: 14px; color: var(--wa-text); }
+    .wa-contact-card__tel  { font-size: 12px; color: var(--wa-text-muted); margin-top: 2px; }
+    .wa-contact-card__link {
+        display: block; margin-top: 8px; font-size: 12px; font-weight: 600;
+        color: var(--wa-green); text-decoration: none;
+        border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px;
+        text-align: center;
+    }
+    .wa-contact-card__link:hover { text-decoration: underline; }
+
     /* Separador de data */
     .wa-date-divider {
         display: flex;
@@ -479,6 +520,59 @@ height: calc(100vh - 125px);    display: flex;
         font-size: 18px;
         flex-shrink: 0;
     }
+
+    /* Emoji picker */
+    .wa-emoji-panel {
+        position: absolute;
+        bottom: 75px;
+        left: 60px;
+        width: 320px;
+        max-height: 280px;
+        background: #233138;
+        border-radius: 14px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        z-index: 1001;
+        display: none;
+        flex-direction: column;
+        overflow: hidden;
+    }
+    .wa-emoji-panel.active { display: flex; }
+    .wa-emoji-tabs {
+        display: flex;
+        gap: 2px;
+        padding: 8px 8px 0;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+        flex-shrink: 0;
+    }
+    .wa-emoji-tab {
+        background: transparent;
+        border: none;
+        font-size: 18px;
+        padding: 4px 8px;
+        border-radius: 8px 8px 0 0;
+        cursor: pointer;
+        opacity: 0.5;
+        transition: opacity 0.15s;
+    }
+    .wa-emoji-tab.active, .wa-emoji-tab:hover { opacity: 1; background: rgba(255,255,255,0.08); }
+    .wa-emoji-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px;
+        padding: 8px;
+        overflow-y: auto;
+        flex: 1;
+    }
+    .wa-emoji-item {
+        font-size: 22px;
+        padding: 4px;
+        border-radius: 6px;
+        cursor: pointer;
+        line-height: 1;
+        transition: background 0.1s;
+        user-select: none;
+    }
+    .wa-emoji-item:hover { background: rgba(255,255,255,0.1); }
 
     /* Welcome screen */
     .wa-welcome-screen {
@@ -782,7 +876,7 @@ height: calc(100vh - 125px);    display: flex;
                     $inicial  = $isGrupo ? '👥' : mb_substr($nome, 0, 1);
                 @endphp
                 <a href="{{ route('whatsapp.conversas.index', ['instancia_id' => $instanciaSelecionada->id, 'conversa_id' => $conversa->id]) }}"
-                   class="wa-chat-tile {{ optional($conversaSelecionada)->id === $conversa->id ? 'active' : '' }}"
+                   class="wa-chat-tile {{ optional($conversaSelecionada)->id === $conversa->id ? 'active' : '' }} {{ $conversa->fixado ? 'fixado' : '' }}"
                    data-nome="{{ strtolower($nome) }}">
                     <div class="avatar {{ $isGrupo ? 'is-grupo' : '' }}">
                         @if($isGrupo)
@@ -801,6 +895,7 @@ height: calc(100vh - 125px);    display: flex;
                             <div class="d-flex align-items-center" style="min-width:0;flex:1">
                                 <div class="name">{{ $nome }}</div>
                                 @if($isGrupo)<span class="wa-group-tag">GRUPO</span>@endif
+                                @if($conversa->fixado)<i class="bi bi-pin-fill wa-pin-icon" title="Fixado"></i>@endif
                             </div>
                             <div class="time">
                                 {{ $conversa->ultima_mensagem_em?->format('H:i') ?? $conversa->updated_at?->format('H:i') }}
@@ -813,6 +908,13 @@ height: calc(100vh - 125px);    display: flex;
                             @endif
                         </div>
                     </div>
+                    <button class="wa-pin-btn"
+                        title="{{ $conversa->fixado ? 'Desafixar' : 'Fixar' }}"
+                        data-url="{{ route('whatsapp.conversas.fixar', $conversa) }}"
+                        data-token="{{ csrf_token() }}"
+                        onclick="event.preventDefault(); fixarConversa(this)">
+                        <i class="bi {{ $conversa->fixado ? 'bi-pin-fill' : 'bi-pin' }}"></i>
+                    </button>
                 </a>
             @empty
                 <div class="p-5 text-center" style="color: var(--wa-text-muted); opacity: 0.4;">
@@ -966,7 +1068,9 @@ height: calc(100vh - 125px);    display: flex;
                             $pl_  = is_array($mensagem->payload) ? $mensagem->payload : [];
                             $d_   = $pl_['data'] ?? $pl_;
                             $m_   = $d_['message'] ?? [];
-                            $ctx  = $m_['extendedTextMessage']['contextInfo']
+                            // Evolution API coloca contextInfo diretamente em $data, não dentro do tipo de mensagem
+                            $ctx  = $d_['contextInfo']
+                                 ?? $m_['extendedTextMessage']['contextInfo']
                                  ?? $m_['imageMessage']['contextInfo']
                                  ?? $m_['videoMessage']['contextInfo']
                                  ?? $m_['audioMessage']['contextInfo']
@@ -1000,6 +1104,13 @@ height: calc(100vh - 125px);    display: flex;
                                 <button class="wa-msg-action-btn reply" title="Responder">
                                     <i class="bi bi-reply-fill"></i>
                                 </button>
+                                @if($mensagem->direcao === 'saida' && $mensagem->tipo === 'texto')
+                                <button class="wa-msg-action-btn edit" title="Editar"
+                                    data-url="{{ route('whatsapp.conversas.mensagem.editar', $mensagem) }}"
+                                    data-token="{{ csrf_token() }}">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                                @endif
                                 <button class="wa-msg-action-btn delete" title="Apagar">
                                     <i class="bi bi-trash3"></i>
                                 </button>
@@ -1058,8 +1169,27 @@ height: calc(100vh - 125px);    display: flex;
                                     </div>
                                 @endforeach
 
-                                {{-- Conteúdo texto --}}
-                                @if($mensagem->conteudo)
+                                {{-- Conteúdo --}}
+                                @if($mensagem->tipo === 'contato')
+                                    @php $contatosCard = $mensagem->conteudo ? explode(';;', $mensagem->conteudo) : []; @endphp
+                                    @forelse($contatosCard as $cardStr)
+                                        @php [$cardNome, $cardTel] = array_pad(explode('|', $cardStr, 2), 2, null); @endphp
+                                        <div class="wa-contact-card">
+                                            <div class="wa-contact-card__avatar">{{ mb_substr($cardNome ?: '?', 0, 1) }}</div>
+                                            <div style="flex:1;min-width:0">
+                                                <div class="wa-contact-card__name">{{ $cardNome ?: $cardTel }}</div>
+                                                @if($cardTel && $cardNome)<div class="wa-contact-card__tel">{{ $cardTel }}</div>@endif
+                                            </div>
+                                        </div>
+                                        @if($cardTel)
+                                        <a href="https://wa.me/{{ $cardTel }}" target="_blank" class="wa-contact-card__link">
+                                            <i class="bi bi-whatsapp"></i> Conversar no WhatsApp
+                                        </a>
+                                        @endif
+                                    @empty
+                                        <div class="wa-msg-content" style="color:var(--wa-text-muted);font-style:italic;">👤 Contato</div>
+                                    @endforelse
+                                @elseif($mensagem->conteudo)
                                     <div class="wa-msg-content">{{ $mensagem->conteudo }}</div>
                                 @elseif($mensagem->tipo === 'audio')
                                     <div class="wa-msg-content" style="color: var(--wa-text-muted); font-style: italic;">🎤 Mensagem de voz</div>
@@ -1067,12 +1197,13 @@ height: calc(100vh - 125px);    display: flex;
                                     <div class="wa-msg-content" style="color: var(--wa-text-muted); font-style: italic;">😄 Figurinha</div>
                                 @elseif($mensagem->tipo === 'localizacao')
                                     <div class="wa-msg-content" style="color: var(--wa-text-muted); font-style: italic;">📍 Localização</div>
-                                @elseif($mensagem->tipo === 'contato')
-                                    <div class="wa-msg-content" style="color: var(--wa-text-muted); font-style: italic;">👤 Contato</div>
                                 @endif
                             @endif
 
                             <div class="wa-msg-footer">
+                                @if($mensagem->editada_em)
+                                    <span class="wa-edited-tag">Editada</span>
+                                @endif
                                 <span class="wa-msg-time">{{ $mensagem->created_at->format('H:i') }}</span>
                                 @if($mensagem->direcao === 'saida')
                                     <span class="wa-msg-status {{ $mensagem->status_envio === 'lida' ? 'read' : '' }}">
@@ -1116,6 +1247,13 @@ height: calc(100vh - 125px);    display: flex;
 
                 <input type="file" id="fileImagem" accept="image/*,video/*" hidden>
                 <input type="file" id="fileDocumento" hidden>
+
+                <button class="wa-icon-btn" id="emojiBtn" title="Emoji"><i class="bi bi-emoji-smile"></i></button>
+
+                <div class="wa-emoji-panel" id="emojiPanel">
+                    <div class="wa-emoji-tabs" id="emojiTabs"></div>
+                    <div class="wa-emoji-grid" id="emojiGrid"></div>
+                </div>
 
                 <div class="wa-input-wrap" id="inputContainer">
                     <div id="replyBar" class="wa-reply-bar" style="display:none;width:100%;margin-bottom:6px">
@@ -1192,10 +1330,11 @@ height: calc(100vh - 125px);    display: flex;
             <span><i class="bi bi-chat-left-text me-2" style="color:var(--wa-green)"></i>Nova Conversa</span>
             <button class="wa-icon-btn" id="fecharNovaConversa"><i class="bi bi-x-lg"></i></button>
         </div>
-        <div class="wa-modal-body">
-            <p>Digite o número com código do país e DDD (ex: 5511999998888)</p>
+        <div class="wa-modal-body" style="position:relative">
+            <p style="margin-bottom:10px">Busque pelo nome do contato ou digite o número (com DDD e código do país):</p>
             <input type="text" id="novoNumeroInput" class="wa-modal-input"
-                   placeholder="5511999998888" maxlength="20" inputmode="numeric">
+                   placeholder="Nome ou 5511999998888" maxlength="100" autocomplete="off">
+            <div id="novaConversaSugestoes" style="display:none;position:absolute;left:0;right:0;background:#1a2634;border:1px solid rgba(255,255,255,0.1);border-radius:10px;margin-top:4px;max-height:220px;overflow-y:auto;z-index:10;box-shadow:0 8px 24px rgba(0,0,0,0.4)"></div>
         </div>
         <div class="wa-modal-footer">
             <button class="wa-btn-cancel" id="cancelarNovaConversa">Cancelar</button>
@@ -1343,18 +1482,76 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     // ===== MODAL NOVA CONVERSA =====
-    const novaConversaOverlay  = document.getElementById('novaConversaOverlay');
-    const novoNumeroInput      = document.getElementById('novoNumeroInput');
+    const novaConversaOverlay   = document.getElementById('novaConversaOverlay');
+    const novoNumeroInput       = document.getElementById('novoNumeroInput');
     const confirmarNovaConversa = document.getElementById('confirmarNovaConversa');
+    const sugestoesDiv          = document.getElementById('novaConversaSugestoes');
+    let novaConversaNumeroSelecionado = null;
+    let sugestaoTimer = null;
+
+    function fecharSugestoes() {
+        if (sugestoesDiv) sugestoesDiv.style.display = 'none';
+    }
 
     function abrirModalNovaConversa() {
         novaConversaOverlay.classList.add('active');
         novoNumeroInput.value = '';
+        novaConversaNumeroSelecionado = null;
         novoNumeroInput.focus();
     }
 
     function fecharModalNovaConversa() {
         novaConversaOverlay.classList.remove('active');
+        fecharSugestoes();
+    }
+
+    function selecionarContato(nome, numero) {
+        novaConversaNumeroSelecionado = numero;
+        novoNumeroInput.value = nome + ' (' + numero + ')';
+        fecharSugestoes();
+    }
+
+    async function buscarSugestoes(q) {
+        if (!q || q.length < 2) { fecharSugestoes(); return; }
+        const instanciaId = '{{ $instanciaSelecionada?->id ?? "" }}';
+        if (!instanciaId) return;
+        try {
+            const resp = await fetch('{{ route("whatsapp.conversas.contatos.buscar") }}?instancia_id=' + instanciaId + '&q=' + encodeURIComponent(q), {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            });
+            if (!resp.ok) return;
+            const contatos = await resp.json();
+            sugestoesDiv.innerHTML = '';
+            const isNumero = /^\d+$/.test(q.trim());
+            if (contatos.length === 0 && !isNumero) {
+                sugestoesDiv.innerHTML = '<div style="padding:12px;color:var(--wa-text-muted);font-size:13px">Nenhum contato encontrado</div>';
+                sugestoesDiv.style.display = 'block';
+                return;
+            }
+            contatos.forEach(c => {
+                const item = document.createElement('div');
+                item.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;transition:background 0.1s';
+                item.innerHTML = `<div style="width:36px;height:36px;border-radius:50%;background:var(--wa-green);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:15px;color:#fff;flex-shrink:0">${c.nome.charAt(0).toUpperCase()}</div><div><div style="font-size:14px;color:var(--wa-text)">${c.nome}</div><div style="font-size:12px;color:var(--wa-text-muted)">${c.numero}</div></div>`;
+                item.addEventListener('mouseenter', () => item.style.background = 'rgba(255,255,255,0.06)');
+                item.addEventListener('mouseleave', () => item.style.background = '');
+                item.addEventListener('click', () => selecionarContato(c.nome, c.numero));
+                sugestoesDiv.appendChild(item);
+            });
+            if (isNumero) {
+                const item = document.createElement('div');
+                item.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;border-top:1px solid rgba(255,255,255,0.07)';
+                item.innerHTML = `<div style="width:36px;height:36px;border-radius:50%;background:#2a4a5a;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="bi bi-telephone" style="color:var(--wa-green)"></i></div><div><div style="font-size:14px;color:var(--wa-text)">Abrir com número ${q}</div><div style="font-size:12px;color:var(--wa-text-muted)">Novo contato</div></div>`;
+                item.addEventListener('mouseenter', () => item.style.background = 'rgba(255,255,255,0.06)');
+                item.addEventListener('mouseleave', () => item.style.background = '');
+                item.addEventListener('click', () => {
+                    novaConversaNumeroSelecionado = q;
+                    novoNumeroInput.value = q;
+                    fecharSugestoes();
+                });
+                sugestoesDiv.appendChild(item);
+            }
+            sugestoesDiv.style.display = sugestoesDiv.children.length ? 'block' : 'none';
+        } catch {}
     }
 
     document.querySelector('[title="Nova conversa"]')?.addEventListener('click', abrirModalNovaConversa);
@@ -1365,16 +1562,29 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     novoNumeroInput?.addEventListener('input', function () {
-        this.value = this.value.replace(/\D/g, '');
+        novaConversaNumeroSelecionado = null;
+        clearTimeout(sugestaoTimer);
+        sugestaoTimer = setTimeout(() => buscarSugestoes(this.value.trim()), 250);
     });
 
     novoNumeroInput?.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') { fecharSugestoes(); return; }
         if (e.key === 'Enter') confirmarNovaConversa?.click();
     });
 
+    document.addEventListener('click', function(e) {
+        if (sugestoesDiv && !sugestoesDiv.contains(e.target) && e.target !== novoNumeroInput) {
+            fecharSugestoes();
+        }
+    });
+
     confirmarNovaConversa?.addEventListener('click', async function () {
-        const numero = novoNumeroInput.value.replace(/\D/g, '');
-        if (!numero || numero.length < 10) {
+        const rawInput = novoNumeroInput?.value.trim() ?? '';
+        const numero = novaConversaNumeroSelecionado
+            ? novaConversaNumeroSelecionado.replace(/\D/g, '')
+            : rawInput.replace(/\D/g, '');
+
+        if (!numero || numero.length < 8) {
             novoNumeroInput.focus();
             novoNumeroInput.style.borderColor = '#f44336';
             setTimeout(() => novoNumeroInput.style.borderColor = '', 1500);
@@ -1508,10 +1718,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 const msg = await mensagemDeErro(resp, 'Erro ao apagar');
                 throw new Error(msg);
             }
-            const data = await parseJsonSafe(resp);
-            if (data?.erroWhatsapp) {
-                console.warn('Apagado na plataforma, mas falhou no WhatsApp:', data.erroWhatsapp);
-            }
             // Atualiza visualmente sem esperar pelo polling
             const bubble = rowEl.querySelector('.wa-msg-bubble');
             if (bubble) {
@@ -1537,6 +1743,7 @@ document.addEventListener('DOMContentLoaded', function () {
     document.getElementById('waMessages')?.addEventListener('click', function (e) {
         const replyBtn  = e.target.closest('.wa-msg-action-btn.reply');
         const deleteBtn = e.target.closest('.wa-msg-action-btn.delete');
+        const editBtn   = e.target.closest('.wa-msg-action-btn.edit');
 
         if (replyBtn) {
             const row     = replyBtn.closest('[data-msg-id]');
@@ -1555,7 +1762,69 @@ document.addEventListener('DOMContentLoaded', function () {
             if (!row) return;
             apagarMensagem(row.dataset.msgId, row);
         }
+
+        if (editBtn) {
+            const row = editBtn.closest('[data-msg-id]');
+            if (!row) return;
+            const url   = editBtn.dataset.url;
+            const token = editBtn.dataset.token;
+            const atual = row.dataset.conteudo || '';
+            abrirEdicao(row, url, token, atual);
+        }
     });
+
+    // ===== EDITAR MENSAGEM =====
+    let editOverlay = null;
+    function abrirEdicao(row, url, token, textoAtual) {
+        if (editOverlay) editOverlay.remove();
+        editOverlay = document.createElement('div');
+        editOverlay.style.cssText = 'position:fixed;inset:0;background:rgba(2,6,23,.7);backdrop-filter:blur(6px);z-index:9999;display:flex;align-items:center;justify-content:center';
+        editOverlay.innerHTML = `
+            <div style="background:#1a2533;border:1px solid rgba(148,163,184,.2);border-radius:16px;padding:24px;width:min(500px,calc(100%-24px));display:flex;flex-direction:column;gap:14px">
+                <div style="font-weight:700;color:#e2e8f0;font-size:16px">Editar mensagem</div>
+                <textarea id="editMsgInput" style="width:100%;min-height:100px;background:#0b1220;border:1px solid rgba(148,163,184,.25);border-radius:10px;color:#e2e8f0;padding:12px;font-size:14px;resize:vertical">${textoAtual.replace(/</g,'&lt;')}</textarea>
+                <div style="display:flex;gap:10px;justify-content:flex-end">
+                    <button id="editMsgCancel" style="background:rgba(255,255,255,.07);border:1px solid rgba(148,163,184,.2);color:#94a3b8;padding:9px 18px;border-radius:10px;cursor:pointer;font-weight:600">Cancelar</button>
+                    <button id="editMsgSave"   style="background:#0d6efd;border:none;color:#fff;padding:9px 18px;border-radius:10px;cursor:pointer;font-weight:600">Salvar</button>
+                </div>
+            </div>`;
+        document.body.appendChild(editOverlay);
+        const input = document.getElementById('editMsgInput');
+        input.focus(); input.setSelectionRange(input.value.length, input.value.length);
+        document.getElementById('editMsgCancel').onclick = () => editOverlay.remove();
+        editOverlay.addEventListener('click', e => { if (e.target === editOverlay) editOverlay.remove(); });
+        document.getElementById('editMsgSave').onclick = async () => {
+            const novoTexto = input.value.trim();
+            if (!novoTexto) return;
+            const btn = document.getElementById('editMsgSave');
+            btn.disabled = true; btn.textContent = 'Salvando...';
+            const fd = new FormData();
+            fd.append('_token', token); fd.append('_method', 'PATCH');
+            fd.append('conteudo', novoTexto);
+            try {
+                const resp = await fetch(url, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                if (resp.ok) {
+                    editOverlay.remove();
+                    await atualizarMensagens(true);
+                } else {
+                    const d = await resp.json().catch(() => ({}));
+                    alert('⚠️ ' + (d.error || 'Erro ao editar mensagem.'));
+                    btn.disabled = false; btn.textContent = 'Salvar';
+                }
+            } catch { btn.disabled = false; btn.textContent = 'Salvar'; }
+        };
+    }
+
+    // ===== FIXAR CONVERSA =====
+    async function fixarConversa(btn) {
+        const fd = new FormData();
+        fd.append('_token', btn.dataset.token);
+        try {
+            const resp = await fetch(btn.dataset.url, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+            if (resp.ok) { await atualizarMensagens(true); }
+        } catch { /* silencioso */ }
+    }
+    window.fixarConversa = fixarConversa;
 
     // ===== HELPERS =====
     function scrollBottom(force = false) {
@@ -1597,6 +1866,77 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     document.addEventListener('click', function () {
         if (attachMenu) attachMenu.classList.remove('active');
+    });
+
+    // ===== EMOJI PICKER =====
+    const emojiBtn   = document.getElementById('emojiBtn');
+    const emojiPanel = document.getElementById('emojiPanel');
+    const emojiGrid  = document.getElementById('emojiGrid');
+    const emojiTabs  = document.getElementById('emojiTabs');
+
+    const EMOJI_CATS = [
+        { icon: '😊', label: 'Rostos', emojis: ['😀','😁','😂','🤣','😃','😄','😅','😆','😇','😉','😊','😋','😌','😍','🥰','😘','😗','😙','😚','😛','😜','🤪','😝','🤑','🤗','🤭','🤫','🤔','🤐','🤨','😐','😑','😶','😏','😒','🙄','😬','🤥','😔','😪','🤤','😴','😷','🤒','🤕','🤢','🤮','🤧','🥵','🥶','🥴','😵','🤯','🤠','🥳','😎','🤓','🧐','😕','😟','🙁','☹️','😮','😯','😲','😳','🥺','😦','😧','😨','😰','😥','😢','😭','😱','😖','😣','😞','😓','😩','😫','🥱','😤','😡','😠','🤬','😈','👿','💀','☠️','💩','🤡','👹','👺','👻','👽','👾','🤖'] },
+        { icon: '👋', label: 'Gestos', emojis: ['👋','🤚','🖐','✋','🖖','👌','🤌','🤏','✌️','🤞','🤟','🤘','🤙','👈','👉','👆','🖕','👇','☝️','👍','👎','✊','👊','🤛','🤜','👏','🙌','👐','🤲','🤝','🙏','✍️','💪','🦾','🦿','🦵','🦶','👂','🦻','👃','🫀','🫁','🧠','🦷','🦴','👀','👁','👅','👄','💋','🩸'] },
+        { icon: '❤️', label: 'Símbolos', emojis: ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❣️','💕','💞','💓','💗','💖','💘','💝','💟','☮️','✝️','☪️','🕉','☸️','✡️','🔯','🕎','☯️','☦️','🛐','⛎','♈','♉','♊','♋','♌','♍','♎','♏','♐','♑','♒','♓','🆔','⚛️','🉑','☢️','☣️','📴','📳','🈶','🈚','🈸','🈺','🈷️','✴️','🆚','💮','🉐','㊙️','㊗️','🈴','🈵','🈹','🈲','🅰️','🅱️','🆎','🆑','🅾️','🆘','❌','⭕','🛑','⛔','📛','🚫','💯','💢','♨️','🚷','🚯','🚳','🚱','🔞','📵','🚭','❗','❕','❓','❔','‼️','⁉️','🔅','🔆','〽️','⚠️','🚸','🔱','⚜️','🔰','♻️','✅','🈯','💹','❎','🌐','💠','Ⓜ️','🌀','💤','🏧','🚾','♿','🅿️','🛗','🈳','🈂️','🛂','🛃','🛄','🛅','🚹','🚺','🚼','⚧️','🚻','🚮','🎦','📶','🈁','🔣','ℹ️','🔤','🔡','🔠','🆖','🆗','🆙','🆒','🆕','🆓','0️⃣','1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟','🔢','#️⃣','*️⃣','⏏️','▶️','⏸','⏹','⏺','⏭','⏮','⏩','⏪','⏫','⏬','◀️','🔼','🔽','➡️','⬅️','⬆️','⬇️','↗️','↘️','↙️','↖️','↕️','↔️','↪️','↩️','⤴️','⤵️','🔀','🔁','🔂','🔄','🔃','🎵','🎶','➕','➖','➗','✖️','♾','💲','💱','™️','©️','®️','〰️','➰','➿','🔚','🔙','🔛','🔝','🔜','✔️','☑️','🔘','🔴','🟠','🟡','🟢','🔵','🟣','⚫','⚪','🟤','🔺','🔻','🔸','🔹','🔶','🔷','🔳','🔲','▪️','▫️','◾','◽','◼️','◻️','🟥','🟧','🟨','🟩','🟦','🟪','⬛','⬜','🟫','🔈','🔇','🔉','🔊','🔔','🔕','📣','📢','👁‍🗨','💬','💭','🗯','♠️','♣️','♥️','♦️','🃏','🎴','🀄','🎲'] },
+        { icon: '🎉', label: 'Atividades', emojis: ['⚽','🏀','🏈','⚾','🥎','🎾','🏐','🏉','🥏','🎱','🪀','🏓','🏸','🏒','🥍','🏏','🥅','⛳','🪁','🛝','🏹','🎣','🤿','🥊','🥋','🎽','🛹','🛼','🛷','⛸','🥌','🎿','⛷','🏂','🏋️','🤼','🤸','⛹️','🤺','🤾','🏌️','🏇','🧘','🏄','🏊','🤽','🚣','🧗','🚵','🚴','🏆','🥇','🥈','🥉','🏅','🎖','🏵','🎗','🎫','🎟','🎪','🤹','🎭','🩰','🎨','🎬','🎤','🎧','🎼','🎹','🥁','🪘','🎷','🎺','🎸','🪕','🎻','🎲','♟','🎯','🎳','🎮','🎰','🧩','🎉','🎊','🎈','🎁','🎀','🎄','🎋','🎍','🎑','🎃','🎆','🎇','🧨','✨','🎠','🎡','🎢','💫','🎪'] },
+        { icon: '🍕', label: 'Comida', emojis: ['🍎','🍊','🍋','🍇','🍓','🫐','🍈','🍉','🍑','🍒','🍍','🥭','🍌','🍐','🍏','🥝','🍅','🫒','🥥','🥑','🍆','🥔','🥕','🌽','🌶','🫑','🥒','🥬','🥦','🧄','🧅','🍄','🥜','🫘','🌰','🍞','🥐','🥖','🫓','🥨','🥯','🧀','🥚','🍳','🧈','🥞','🧇','🥓','🥩','🍗','🍖','🦴','🌭','🍔','🍟','🍕','🫔','🌮','🌯','🫕','🥙','🧆','🥚','🍿','🧂','🧁','🎂','🍰','🍩','🍪','🍫','🍬','🍭','🍮','🍯','🍼','🥛','☕','🫖','🍵','🧃','🥤','🧋','🍶','🍺','🍻','🥂','🍷','🥃','🍸','🍹','🧊','🥄','🍴','🍽','🥢','🧊'] },
+        { icon: '✈️', label: 'Viagem', emojis: ['🚗','🚕','🚙','🚌','🚎','🏎','🚓','🚑','🚒','🚐','🛻','🚚','🚛','🚜','🏍','🛵','🛺','🚲','🛴','🛹','🛼','🚏','🛣','🛤','⛽','🚨','🚥','🚦','🛑','🚧','⚓','🪝','⛵','🛶','🚤','🛥','🛳','⛴','🚢','✈️','🛩','🛫','🛬','🪂','💺','🚁','🚟','🚠','🚡','🛰','🚀','🛸','🏠','🏡','🏢','🏣','🏤','🏥','🏦','🏨','🏩','🏪','🏫','🏭','🏗','🧱','🪨','🪵','🏘','🏚','🏛','🏟','⛪','🕌','🛕','🕍','🏯','🏰','💒','🗼','🗽','🗾','🗿','🌐','🗺','🧭','🌋','🏔','⛰','🌁','🌃','🌄','🌅','🌆','🌇','🌉','🌌','🌠','🎇','🎆','🌈','🌞','🌝','🌛','🌜','🌚','🌕','🌖','🌗','🌘','🌑','🌒','🌓','🌔','🌙','🌟','⭐','🌠','💫','✨','🌤','⛅','🌥','☁️','🌦','🌧','⛈','🌩','🌨','❄️','☃️','⛄','🌬','💨','🌈','🌊','💧','💦','🌫'] },
+    ];
+
+    let currentCatIdx = 0;
+
+    function buildEmojiTabs() {
+        emojiTabs.innerHTML = '';
+        EMOJI_CATS.forEach((cat, i) => {
+            const btn = document.createElement('button');
+            btn.className = 'wa-emoji-tab' + (i === 0 ? ' active' : '');
+            btn.title = cat.label;
+            btn.textContent = cat.icon;
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                currentCatIdx = i;
+                document.querySelectorAll('.wa-emoji-tab').forEach((t,j) => t.classList.toggle('active', j === i));
+                buildEmojiGrid(i);
+            });
+            emojiTabs.appendChild(btn);
+        });
+    }
+
+    function buildEmojiGrid(catIdx) {
+        emojiGrid.innerHTML = '';
+        EMOJI_CATS[catIdx].emojis.forEach(em => {
+            const span = document.createElement('span');
+            span.className = 'wa-emoji-item';
+            span.textContent = em;
+            span.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (!mainInput) return;
+                const start = mainInput.selectionStart;
+                const end   = mainInput.selectionEnd;
+                const val   = mainInput.value;
+                mainInput.value = val.slice(0, start) + em + val.slice(end);
+                mainInput.selectionStart = mainInput.selectionEnd = start + em.length;
+                mainInput.focus();
+                mainInput.dispatchEvent(new Event('input'));
+            });
+            emojiGrid.appendChild(span);
+        });
+    }
+
+    buildEmojiTabs();
+    buildEmojiGrid(0);
+
+    if (emojiBtn) {
+        emojiBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            emojiPanel.classList.toggle('active');
+            if (attachMenu) attachMenu.classList.remove('active');
+        });
+    }
+    document.addEventListener('click', function(e) {
+        if (emojiPanel && !emojiPanel.contains(e.target) && e.target !== emojiBtn) {
+            emojiPanel.classList.remove('active');
+        }
     });
 
     document.getElementById('fileImagem')?.addEventListener('change', function () {

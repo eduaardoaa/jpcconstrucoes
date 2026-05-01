@@ -43,9 +43,71 @@ class WhatsappWebhookController extends Controller
             Log::info("JID próprio da instância {$instancia->id} descoberto: {$senderJid}");
         }
 
-        $data = $payload['data'] ?? null;
+        $data  = $payload['data'] ?? null;
+        $event = $payload['event'] ?? '';
 
-        if (!$data || !isset($data['key'])) {
+        if (!$data) {
+            return response()->json(['ok' => true]);
+        }
+
+        // ──────────────────────────────────────────────────────────────────────
+        // messages.delete e messages.update NÃO têm data.key — têm data.keyId.
+        // Precisam ser tratados ANTES da guarda que exige data.key.
+        // ──────────────────────────────────────────────────────────────────────
+        if ($event === 'messages.delete') {
+            $delKey = $data['key'] ?? null;
+            $delId  = is_array($delKey) ? ($delKey['id'] ?? null) : $delKey;
+            if (!$delId) $delId = $data['keyId'] ?? null;
+            if ($delId) {
+                WhatsappMensagem::where('whatsapp_instancia_id', $instancia->id)
+                    ->where('message_id', $delId)
+                    ->whereNull('apagada_em')
+                    ->update(['apagada_em' => now(), 'conteudo' => null]);
+            }
+            return response()->json(['ok' => true]);
+        }
+
+        if ($event === 'messages.update') {
+            $updates = isset($data[0]) ? $data : [$data];
+            foreach ($updates as $upd) {
+                $upId = $upd['keyId'] ?? ($upd['key']['id'] ?? null);
+                if (!$upId) continue;
+
+                $upStatus = $upd['status'] ?? ($upd['update']['status'] ?? null);
+                if ($upStatus === 'DELETED') {
+                    WhatsappMensagem::where('whatsapp_instancia_id', $instancia->id)
+                        ->where('message_id', $upId)
+                        ->whereNull('apagada_em')
+                        ->update(['apagada_em' => now(), 'conteudo' => null]);
+                    continue;
+                }
+
+                // Edição: data.message.editedMessage.message.conversation
+                $editedMsgContent = $upd['message']['editedMessage']['message'] ?? null;
+                if ($editedMsgContent) {
+                    $novoTexto = $editedMsgContent['conversation']
+                              ?? ($editedMsgContent['extendedTextMessage']['text'] ?? null);
+                    if ($novoTexto !== null) {
+                        WhatsappMensagem::where('whatsapp_instancia_id', $instancia->id)
+                            ->where('message_id', $upId)
+                            ->whereNull('apagada_em')
+                            ->update(['conteudo' => $novoTexto, 'editada_em' => now()]);
+                    }
+                }
+
+                // Status de entrega/leitura
+                $statusMap = ['SERVER_ACK' => 'enviada', 'DELIVERY_ACK' => 'entregue', 'READ' => 'lida'];
+                if ($upStatus && isset($statusMap[$upStatus])) {
+                    WhatsappMensagem::where('whatsapp_instancia_id', $instancia->id)
+                        ->where('message_id', $upId)
+                        ->update(['status_envio' => $statusMap[$upStatus]]);
+                }
+            }
+            return response()->json(['ok' => true]);
+        }
+
+        // Para todos os outros eventos (messages.upsert etc.) exige data.key
+        if (!isset($data['key'])) {
             return response()->json(['ok' => true]);
         }
 
@@ -88,11 +150,11 @@ class WhatsappWebhookController extends Controller
         }
 
         // ──────────────────────────────────────────────────────────────────────
-        // EVENTO DE EXCLUSÃO DE MENSAGEM
-        // Evolution API pode enviar event=messages.delete ou messages.update com
-        // status DELETED quando uma mensagem é apagada pelo remetente.
+        // EVENTOS DE EDIÇÃO E EXCLUSÃO
         // ──────────────────────────────────────────────────────────────────────
         $event = $payload['event'] ?? '';
+
+        // messages.delete direto
         if ($event === 'messages.delete') {
             $delKey = $data['key'] ?? null;
             $delId  = is_array($delKey) ? ($delKey['id'] ?? null) : $delKey;
@@ -105,23 +167,99 @@ class WhatsappWebhookController extends Controller
             return response()->json(['ok' => true]);
         }
 
-        // messages.update com status DELETED (alguns builds da Evolution API)
+        // messages.update — Evolution API v2 envia keyId/status/message direto em $data
         if ($event === 'messages.update') {
-            $updates = is_array($data) && isset($data[0]) ? $data : [$data];
+            // Pode chegar como array de updates ou como objeto único
+            $updates = isset($data[0]) ? $data : [$data];
             foreach ($updates as $upd) {
-                $upKey    = $upd['key'] ?? [];
-                $upId     = $upKey['id'] ?? null;
-                $upStatus = $upd['update']['status'] ?? null;
-                if ($upId && $upStatus === 'DELETED') {
+                // ID da mensagem original: vem como keyId (não dentro de key.id)
+                $upId = $upd['keyId'] ?? ($upd['key']['id'] ?? null);
+                if (!$upId) continue;
+
+                // Status atualizado diretamente em $upd (não em $upd['update'])
+                $upStatus = $upd['status'] ?? ($upd['update']['status'] ?? null);
+                if ($upStatus === 'DELETED') {
                     WhatsappMensagem::where('whatsapp_instancia_id', $instancia->id)
                         ->where('message_id', $upId)
                         ->whereNull('apagada_em')
                         ->update(['apagada_em' => now(), 'conteudo' => null]);
+                    continue;
+                }
+
+                // Edição: vem em message.editedMessage.message (não em update.editedMessage)
+                $editedMsgContent = $upd['message']['editedMessage']['message']
+                                 ?? $upd['update']['editedMessage']['message']['protocolMessage']['editedMessage']
+                                 ?? $upd['update']['message']['protocolMessage']['editedMessage']
+                                 ?? null;
+                if ($editedMsgContent) {
+                    $novoTexto = $editedMsgContent['conversation']
+                              ?? ($editedMsgContent['extendedTextMessage']['text'] ?? null);
+                    if ($novoTexto !== null) {
+                        WhatsappMensagem::where('whatsapp_instancia_id', $instancia->id)
+                            ->where('message_id', $upId)
+                            ->whereNull('apagada_em')
+                            ->update(['conteudo' => $novoTexto, 'editada_em' => now()]);
+                    }
+                }
+
+                // Atualiza status de entrega/leitura
+                if ($upStatus) {
+                    $statusMap = [
+                        'SERVER_ACK'   => 'enviada',
+                        'DELIVERY_ACK' => 'entregue',
+                        'READ'         => 'lida',
+                    ];
+                    if (isset($statusMap[$upStatus])) {
+                        WhatsappMensagem::where('whatsapp_instancia_id', $instancia->id)
+                            ->where('message_id', $upId)
+                            ->update(['status_envio' => $statusMap[$upStatus]]);
+                    }
                 }
             }
-            if (!isset($data['key'])) {
+            return response()->json(['ok' => true]);
+        }
+
+        // messages.upsert com protocolMessage — edição (type=14) ou exclusão (type=REVOKE/0)
+        $msgObj = $data['message'] ?? [];
+        $proto  = $msgObj['protocolMessage'] ?? null;
+        if ($proto) {
+            $protoType  = $proto['type'] ?? null;
+            $protoKeyId = $proto['key']['id'] ?? null;
+
+            // Exclusão (REVOKE = 0 ou string "REVOKE")
+            if (($protoType === 0 || $protoType === 'REVOKE') && $protoKeyId) {
+                WhatsappMensagem::where('whatsapp_instancia_id', $instancia->id)
+                    ->where('message_id', $protoKeyId)
+                    ->whereNull('apagada_em')
+                    ->update(['apagada_em' => now(), 'conteudo' => null]);
                 return response()->json(['ok' => true]);
             }
+
+            // Edição (type=14)
+            if ($protoType === 14 && $protoKeyId) {
+                $editadoMsg = $proto['editedMessage'] ?? null;
+                $novoTexto  = $editadoMsg['conversation']
+                           ?? ($editadoMsg['extendedTextMessage']['text'] ?? null);
+                if ($novoTexto !== null) {
+                    WhatsappMensagem::where('whatsapp_instancia_id', $instancia->id)
+                        ->where('message_id', $protoKeyId)
+                        ->whereNull('apagada_em')
+                        ->update(['conteudo' => $novoTexto, 'editada_em' => now()]);
+                }
+                return response()->json(['ok' => true]);
+            }
+        }
+
+        // messages.upsert com placeholderMessage (exclusão do outro lado)
+        if (isset($msgObj['placeholderMessage']) && ($msgObj['placeholderMessage']['type'] ?? -1) === 0) {
+            $delId = ($data['key']['id'] ?? null);
+            if ($delId) {
+                WhatsappMensagem::where('whatsapp_instancia_id', $instancia->id)
+                    ->where('message_id', $delId)
+                    ->whereNull('apagada_em')
+                    ->update(['apagada_em' => now(), 'conteudo' => null]);
+            }
+            return response()->json(['ok' => true]);
         }
 
         // ──────────────────────────────────────────────────────────────────────
@@ -431,8 +569,9 @@ class WhatsappWebhookController extends Controller
         // Vincula reply_to_message_id quando a mensagem é uma resposta a outra
         if (!$mensagem->reply_to_message_id) {
             $msg      = $data['message'] ?? [];
-            // contextInfo pode estar em qualquer tipo de mensagem
-            $ctxInfo  = $msg['extendedTextMessage']['contextInfo']
+            // Evolution API coloca contextInfo direto em $data, não dentro do tipo de mensagem
+            $ctxInfo  = $data['contextInfo']
+                     ?? $msg['extendedTextMessage']['contextInfo']
                      ?? $msg['imageMessage']['contextInfo']
                      ?? $msg['videoMessage']['contextInfo']
                      ?? $msg['audioMessage']['contextInfo']
@@ -595,7 +734,26 @@ class WhatsappWebhookController extends Controller
         }
 
         if (isset($message['contactMessage']) || isset($message['contactsArrayMessage'])) {
-            return ['contato', null];
+            $lista = isset($message['contactMessage'])
+                ? [$message['contactMessage']]
+                : ($message['contactsArrayMessage']['contacts'] ?? []);
+
+            $partes = [];
+            foreach ($lista as $c) {
+                $nome = $c['displayName'] ?? null;
+                $vcard = $c['vcard'] ?? '';
+                // Extrai waid (número WhatsApp) do vCard: TEL;...;waid=XXXXX:...
+                $tel = null;
+                if (preg_match('/waid=(\d+)/', $vcard, $m)) {
+                    $tel = $m[1];
+                } elseif (preg_match('/TEL[^:\n]*:([^\n]+)/', $vcard, $m)) {
+                    $tel = preg_replace('/\D/', '', trim($m[1]));
+                }
+                if ($nome || $tel) {
+                    $partes[] = ($nome ?: $tel) . ($nome && $tel ? '|' . $tel : '');
+                }
+            }
+            return ['contato', implode(';;', $partes) ?: null];
         }
 
         return ['outro', null];

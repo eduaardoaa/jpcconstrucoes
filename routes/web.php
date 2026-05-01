@@ -312,6 +312,9 @@ Route::prefix('whatsapp')->name('whatsapp.')->middleware('auth')->group(function
     Route::post('/conversas/nova', [WhatsappConversaController::class, 'novaConversa'])
         ->name('conversas.nova');
 
+    Route::get('/conversas/contatos/buscar', [WhatsappConversaController::class, 'buscarContatos'])
+        ->name('conversas.contatos.buscar');
+
     Route::get('/conversas/{mensagem}/midia', [WhatsappConversaController::class, 'downloadMidia'])
         ->name('conversas.midia');
 
@@ -332,4 +335,10 @@ Route::prefix('whatsapp')->name('whatsapp.')->middleware('auth')->group(function
 
     Route::delete('/conversas/mensagens/{mensagem}', [WhatsappConversaController::class, 'apagarMensagem'])
         ->name('conversas.mensagem.apagar');
+
+    Route::post('/conversas/{conversa}/fixar', [WhatsappConversaController::class, 'fixarConversa'])
+        ->name('conversas.fixar');
+
+    Route::patch('/conversas/mensagens/{mensagem}/editar', [WhatsappConversaController::class, 'editarMensagem'])
+        ->name('conversas.mensagem.editar');
 });

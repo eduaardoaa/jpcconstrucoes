@@ -15,7 +15,7 @@
             $inicial  = $isGrupo ? '👥' : mb_substr($nome, 0, 1);
         @endphp
         <a href="{{ route('whatsapp.conversas.index', ['instancia_id' => $instanciaSelecionada->id, 'conversa_id' => $conversa->id]) }}"
-           class="wa-chat-tile {{ optional($conversaSelecionada)->id === $conversa->id ? 'active' : '' }}"
+           class="wa-chat-tile {{ optional($conversaSelecionada)->id === $conversa->id ? 'active' : '' }} {{ $conversa->fixado ? 'fixado' : '' }}"
            data-nome="{{ strtolower($nome) }}">
             <div class="avatar {{ $isGrupo ? 'is-grupo' : '' }}">
                 @if($isGrupo)
@@ -34,6 +34,7 @@
                     <div class="d-flex align-items-center" style="min-width:0;flex:1">
                         <div class="name">{{ $nome }}</div>
                         @if($isGrupo)<span class="wa-group-tag">GRUPO</span>@endif
+                        @if($conversa->fixado)<i class="bi bi-pin-fill wa-pin-icon" title="Fixado"></i>@endif
                     </div>
                     <div class="time">
                         {{ $conversa->ultima_mensagem_em?->format('H:i') ?? $conversa->updated_at?->format('H:i') }}
@@ -46,6 +47,13 @@
                     @endif
                 </div>
             </div>
+            <button class="wa-pin-btn"
+                title="{{ $conversa->fixado ? 'Desafixar' : 'Fixar' }}"
+                data-url="{{ route('whatsapp.conversas.fixar', $conversa) }}"
+                data-token="{{ csrf_token() }}"
+                onclick="event.preventDefault(); fixarConversa(this)">
+                <i class="bi {{ $conversa->fixado ? 'bi-pin-fill' : 'bi-pin' }}"></i>
+            </button>
         </a>
     @empty
         <div class="p-5 text-center" style="color: var(--wa-text-muted); opacity: 0.4;">
@@ -118,7 +126,9 @@
                     $pl_  = is_array($mensagem->payload) ? $mensagem->payload : [];
                     $d_   = $pl_['data'] ?? $pl_;
                     $m_   = $d_['message'] ?? [];
-                    $ctx  = $m_['extendedTextMessage']['contextInfo']
+                    // Evolution API coloca contextInfo diretamente em $data, não dentro do tipo de mensagem
+                    $ctx  = $d_['contextInfo']
+                         ?? $m_['extendedTextMessage']['contextInfo']
                          ?? $m_['imageMessage']['contextInfo']
                          ?? $m_['videoMessage']['contextInfo']
                          ?? $m_['audioMessage']['contextInfo']
@@ -151,6 +161,13 @@
                         <button class="wa-msg-action-btn reply" title="Responder">
                             <i class="bi bi-reply-fill"></i>
                         </button>
+                        @if($mensagem->direcao === 'saida' && $mensagem->tipo === 'texto')
+                        <button class="wa-msg-action-btn edit" title="Editar"
+                            data-url="{{ route('whatsapp.conversas.mensagem.editar', $mensagem) }}"
+                            data-token="{{ csrf_token() }}">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                        @endif
                         <button class="wa-msg-action-btn delete" title="Apagar">
                             <i class="bi bi-trash3"></i>
                         </button>
@@ -198,7 +215,26 @@
                             </div>
                         @endforeach
 
-                        @if($mensagem->conteudo)
+                        @if($mensagem->tipo === 'contato')
+                            @php $contatosCard = $mensagem->conteudo ? explode(';;', $mensagem->conteudo) : []; @endphp
+                            @forelse($contatosCard as $cardStr)
+                                @php [$cardNome, $cardTel] = array_pad(explode('|', $cardStr, 2), 2, null); @endphp
+                                <div class="wa-contact-card">
+                                    <div class="wa-contact-card__avatar">{{ mb_substr($cardNome ?: '?', 0, 1) }}</div>
+                                    <div style="flex:1;min-width:0">
+                                        <div class="wa-contact-card__name">{{ $cardNome ?: $cardTel }}</div>
+                                        @if($cardTel && $cardNome)<div class="wa-contact-card__tel">{{ $cardTel }}</div>@endif
+                                    </div>
+                                </div>
+                                @if($cardTel)
+                                <a href="https://wa.me/{{ $cardTel }}" target="_blank" class="wa-contact-card__link">
+                                    <i class="bi bi-whatsapp"></i> Conversar no WhatsApp
+                                </a>
+                                @endif
+                            @empty
+                                <div class="wa-msg-content" style="color:var(--wa-text-muted);font-style:italic;">👤 Contato</div>
+                            @endforelse
+                        @elseif($mensagem->conteudo)
                             <div class="wa-msg-content">{{ $mensagem->conteudo }}</div>
                         @elseif($mensagem->tipo === 'audio')
                             <div class="wa-msg-content" style="color: var(--wa-text-muted); font-style: italic;">🎤 Mensagem de voz</div>
@@ -206,12 +242,13 @@
                             <div class="wa-msg-content" style="color: var(--wa-text-muted); font-style: italic;">😄 Figurinha</div>
                         @elseif($mensagem->tipo === 'localizacao')
                             <div class="wa-msg-content" style="color: var(--wa-text-muted); font-style: italic;">📍 Localização</div>
-                        @elseif($mensagem->tipo === 'contato')
-                            <div class="wa-msg-content" style="color: var(--wa-text-muted); font-style: italic;">👤 Contato</div>
                         @endif
                     @endif
 
                     <div class="wa-msg-footer">
+                        @if($mensagem->editada_em)
+                            <span class="wa-edited-tag">Editada</span>
+                        @endif
                         <span class="wa-msg-time">{{ $mensagem->created_at->format('H:i') }}</span>
                         @if($mensagem->direcao === 'saida')
                             <span class="wa-msg-status {{ $mensagem->status_envio === 'lida' ? 'read' : '' }}">
