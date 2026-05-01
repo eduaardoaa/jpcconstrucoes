@@ -191,6 +191,9 @@ height: calc(100vh - 125px);    display: flex;
     .wa-pin-icon { color: var(--wa-text-muted); font-size: 11px; margin-left: 4px; flex-shrink: 0; }
     .wa-chat-tile.fixado { background: rgba(0,168,132,0.06); }
     .wa-edited-tag { font-size: 11px; color: var(--wa-text-muted); font-style: italic; }
+    .wa-search-highlight { background: #f0a500; color: #000; border-radius: 2px; padding: 0 1px; }
+    .wa-search-highlight.current { background: #ff6b00; color: #fff; }
+    .wa-msg-row.search-match { outline: 2px solid rgba(240,165,0,0.4); border-radius: 10px; }
     .wa-msg-action-btn.edit { color: var(--wa-blue); }
     /* Botão de fixar flutuante na tile */
     .wa-chat-tile { position: relative; }
@@ -1000,10 +1003,21 @@ height: calc(100vh - 125px);    display: flex;
                         <span>Assinatura <span id="sigStatus">{{ $conversaSelecionada->enviar_identificacao ? 'ON' : 'OFF' }}</span></span>
                     </div>
 
-                    <button class="wa-icon-btn" title="Buscar"><i class="bi bi-search"></i></button>
+                    <button class="wa-icon-btn" id="msgSearchBtn" title="Buscar"><i class="bi bi-search"></i></button>
                     <button class="wa-icon-btn" title="Opções"><i class="bi bi-three-dots-vertical"></i></button>
                 </div>
             </header>
+
+            {{-- Painel de busca em mensagens --}}
+            <div id="msgSearchPanel" style="display:none;background:var(--wa-header);border-bottom:1px solid var(--wa-border);padding:10px 16px;display:none;align-items:center;gap:10px">
+                <i class="bi bi-search" style="color:var(--wa-text-muted);font-size:15px;flex-shrink:0"></i>
+                <input id="msgSearchInput" type="text" placeholder="Pesquisar na conversa..." autocomplete="off"
+                       style="flex:1;background:rgba(255,255,255,0.07);border:none;border-radius:8px;padding:7px 12px;color:var(--wa-text);font-size:14px;outline:none">
+                <span id="msgSearchCount" style="color:var(--wa-text-muted);font-size:12px;white-space:nowrap;min-width:60px;text-align:center"></span>
+                <button id="msgSearchPrev" style="background:transparent;border:none;color:var(--wa-icon);font-size:18px;cursor:pointer;padding:2px 6px" title="Anterior"><i class="bi bi-chevron-up"></i></button>
+                <button id="msgSearchNext" style="background:transparent;border:none;color:var(--wa-icon);font-size:18px;cursor:pointer;padding:2px 6px" title="Próximo"><i class="bi bi-chevron-down"></i></button>
+                <button id="msgSearchClose" style="background:transparent;border:none;color:var(--wa-icon);font-size:18px;cursor:pointer;padding:2px 6px" title="Fechar"><i class="bi bi-x-lg"></i></button>
+            </div>
 
             {{-- Banner de aviso para contatos @lid (número privado) --}}
             @if(!$isGrupoAtual && str_contains($contatoAtual?->remote_jid ?? '', '@lid'))
@@ -1642,6 +1656,110 @@ document.addEventListener('DOMContentLoaded', function () {
             });
         });
     }
+
+    // ===== BUSCA EM MENSAGENS =====
+    const msgSearchBtn   = document.getElementById('msgSearchBtn');
+    const msgSearchPanel = document.getElementById('msgSearchPanel');
+    const msgSearchInput = document.getElementById('msgSearchInput');
+    const msgSearchCount = document.getElementById('msgSearchCount');
+    const msgSearchPrev  = document.getElementById('msgSearchPrev');
+    const msgSearchNext  = document.getElementById('msgSearchNext');
+    const msgSearchClose = document.getElementById('msgSearchClose');
+    let searchMatches = [];
+    let searchCurrentIdx = -1;
+
+    function abrirBuscaMensagens() {
+        if (!msgSearchPanel) return;
+        msgSearchPanel.style.display = 'flex';
+        msgSearchInput.value = '';
+        msgSearchInput.focus();
+        limparBusca();
+    }
+
+    function fecharBuscaMensagens() {
+        if (!msgSearchPanel) return;
+        msgSearchPanel.style.display = 'none';
+        limparBusca();
+    }
+
+    function limparBusca() {
+        searchMatches = [];
+        searchCurrentIdx = -1;
+        if (msgSearchCount) msgSearchCount.textContent = '';
+        document.querySelectorAll('.wa-search-highlight').forEach(el => {
+            el.outerHTML = el.textContent;
+        });
+        document.querySelectorAll('.wa-msg-row.search-match').forEach(el => el.classList.remove('search-match'));
+    }
+
+    function escaparRegex(str) {
+        return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    function executarBusca(q) {
+        limparBusca();
+        if (!q || q.length < 2) return;
+
+        const re = new RegExp(escaparRegex(q), 'gi');
+        const contentEls = document.querySelectorAll('#waMessages .wa-msg-content');
+        const rowsComMatch = [];
+
+        contentEls.forEach(el => {
+            const row = el.closest('.wa-msg-row');
+            if (!row) return;
+            const texto = el.textContent || '';
+            if (!re.test(texto)) return;
+            re.lastIndex = 0;
+
+            // Destaca sem quebrar HTML
+            el.innerHTML = el.textContent.replace(re, m => `<mark class="wa-search-highlight">${m}</mark>`);
+            re.lastIndex = 0;
+            rowsComMatch.push(row);
+        });
+
+        searchMatches = document.querySelectorAll('.wa-search-highlight');
+        if (searchMatches.length === 0) {
+            msgSearchCount.textContent = 'Sem resultados';
+            return;
+        }
+
+        rowsComMatch.forEach(r => r.classList.add('search-match'));
+        searchCurrentIdx = 0;
+        irParaMatch(0);
+    }
+
+    function irParaMatch(idx) {
+        document.querySelectorAll('.wa-search-highlight.current').forEach(el => el.classList.remove('current'));
+        if (searchMatches.length === 0) return;
+        searchCurrentIdx = ((idx % searchMatches.length) + searchMatches.length) % searchMatches.length;
+        const el = searchMatches[searchCurrentIdx];
+        el.classList.add('current');
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        msgSearchCount.textContent = `${searchCurrentIdx + 1} / ${searchMatches.length}`;
+    }
+
+    if (msgSearchBtn) {
+        msgSearchBtn.addEventListener('click', abrirBuscaMensagens);
+    }
+    if (msgSearchClose) {
+        msgSearchClose.addEventListener('click', fecharBuscaMensagens);
+    }
+    if (msgSearchInput) {
+        let buscaTimer;
+        msgSearchInput.addEventListener('input', function () {
+            clearTimeout(buscaTimer);
+            buscaTimer = setTimeout(() => executarBusca(this.value.trim()), 300);
+        });
+        msgSearchInput.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                irParaMatch(searchCurrentIdx + (e.shiftKey ? -1 : 1));
+            }
+            if (e.key === 'Escape') fecharBuscaMensagens();
+        });
+    }
+    if (msgSearchNext) msgSearchNext.addEventListener('click', () => irParaMatch(searchCurrentIdx + 1));
+    if (msgSearchPrev) msgSearchPrev.addEventListener('click', () => irParaMatch(searchCurrentIdx - 1));
 
     // ===== TOGGLE DE ASSINATURA =====
     const sigToggle = document.getElementById('sigToggle');
