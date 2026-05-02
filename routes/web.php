@@ -22,6 +22,7 @@ use App\Http\Controllers\CombustivelController;
 use App\Http\Controllers\DeslocamentoVeiculoController;
 use App\Http\Controllers\WhatsappInstanciaController;
 use App\Http\Controllers\WhatsappConversaController;
+use App\Http\Controllers\VagaController;
 
 /*
 |--------------------------------------------------------------------------
@@ -348,3 +349,51 @@ Route::prefix('whatsapp')->name('whatsapp.')->middleware('auth')->group(function
     Route::patch('/instancias/{instancia}/membro/renomear', [WhatsappConversaController::class, 'renomearMembro'])
         ->name('instancias.membro.renomear');
 });
+
+/*
+|--------------------------------------------------------------------------
+| VAGAS E CURRÍCULOS - ADMIN
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth', 'permissao:vagas'])->group(function () {
+    Route::get('/vagas', [VagaController::class, 'index'])
+        ->name('vagas.index');
+
+    Route::post('/vagas', [VagaController::class, 'store'])
+        ->name('vagas.store');
+
+    Route::put('/vagas/{vaga}', [VagaController::class, 'update'])
+        ->name('vagas.update');
+
+    Route::delete('/vagas/{vaga}', [VagaController::class, 'destroy'])
+        ->name('vagas.destroy');
+
+    Route::patch('/vagas/{vaga}/toggle-status', [VagaController::class, 'toggleStatus'])
+        ->name('vagas.toggle-status');
+
+    Route::get('/vagas/{vaga}/candidatos', [VagaController::class, 'candidatos'])
+        ->name('vagas.candidatos');
+
+    Route::patch('/vagas/candidaturas/{candidatura}/status', [VagaController::class, 'alterarStatusCandidato'])
+        ->name('vagas.candidatura.status');
+
+    Route::delete('/vagas/candidaturas/{candidatura}', [VagaController::class, 'excluirCandidatura'])
+        ->name('vagas.candidatura.destroy');
+
+    Route::post('/vagas/candidaturas/{candidatura}/reanalisar', [VagaController::class, 'reanalisarCandidatura'])
+        ->name('vagas.candidatura.reanalisar');
+
+    Route::get('/vagas/candidaturas/{candidatura}/curriculo', [VagaController::class, 'downloadCurriculo'])
+        ->name('vagas.candidatura.curriculo');
+});
+
+/*
+|--------------------------------------------------------------------------
+| VAGAS - FORMULÁRIO PÚBLICO (SEM AUTENTICAÇÃO)
+|--------------------------------------------------------------------------
+*/
+Route::get('/vaga/{slug}', [VagaController::class, 'formAplicar'])
+    ->name('vagas.aplicar');
+
+Route::post('/vaga/{slug}', [VagaController::class, 'aplicar'])
+    ->name('vagas.aplicar.submit');Route::post('/vagas/analisar-imagem', [\App\Http\Controllers\VagaController::class, 'analisarImagem'])->name('vagas.analisar-imagem');

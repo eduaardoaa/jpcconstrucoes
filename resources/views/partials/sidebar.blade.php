@@ -339,6 +339,37 @@
                     </div>
                 @endif
 
+                {{-- SANFONA VAGAS --}}
+                @if(auth()->user()->hasPermissao('vagas'))
+                    @php $vagasOpen = request()->routeIs('vagas.*'); @endphp
+                    <div class="sidebar-accordion-item">
+                        <button
+                            type="button"
+                            class="sidebar-accordion-toggle {{ $vagasOpen ? 'active' : '' }}"
+                            onclick="toggleSidebarAccordion('accordion-vagas', this)"
+                        >
+                            <span class="sidebar-accordion-left">
+                                <span class="sidebar-accordion-icon">
+                                    <i class="bi bi-briefcase-fill"></i>
+                                </span>
+                                <span class="sidebar-accordion-label">Vagas</span>
+                            </span>
+                            <span class="sidebar-accordion-arrow">
+                                <i class="bi bi-chevron-down"></i>
+                            </span>
+                        </button>
+
+                        <div id="accordion-vagas" class="sidebar-accordion-content {{ $vagasOpen ? 'open' : '' }}">
+                            <div class="sidebar-subnav">
+                                <a href="{{ route('vagas.index') }}" class="sidebar-link {{ request()->routeIs('vagas.index') ? 'active' : '' }}">
+                                    <span class="sidebar-link-icon"><i class="bi bi-list-ul"></i></span>
+                                    <span class="sidebar-link-text">Gerenciar Vagas</span>
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                @endif
+
             </div>
         </div>
     </nav>

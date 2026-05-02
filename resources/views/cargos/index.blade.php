@@ -746,10 +746,35 @@
         background: #0b1220;
         border: 1px solid var(--border);
         border-radius: 12px;
-        padding: 14px;
-        max-height: 320px;
-        overflow-y: auto;
+        padding: 18px;
+        /* Removido max-height para mostrar os grupos inteiros */
     }
+
+    .perm-group-title {
+        grid-column: 1 / -1;
+        font-size: 11.5px;
+        font-weight: 800;
+        text-transform: uppercase;
+        color: var(--accent);
+        letter-spacing: 0.1em;
+        margin-top: 18px;
+        margin-bottom: 8px;
+        padding-bottom: 6px;
+        border-bottom: 1px solid var(--accent-soft);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .perm-group-title i {
+        font-size: 15px;
+        color: var(--accent);
+    }
+
+    .perm-group-title:first-child {
+        margin-top: 0;
+    }
+
 
     .perm-item {
         display: flex;
@@ -1259,14 +1284,25 @@
                             <div class="form-divider"></div>
 
                             <div class="perm-grid">
-                                @foreach ($permissoes as $permissao)
-                                    <label class="perm-item">
-                                        <input type="checkbox"
-                                               class="create-permissao-checkbox"
-                                               name="permissoes[]"
-                                               value="{{ $permissao->id }}">
-                                        <span>{{ $permissao->nome }}</span>
-                                    </label>
+                                @foreach ($permissoesAgrupadas as $titulo => $perms)
+                                    <div class="perm-group-title">
+                                        @if(str_contains($titulo, 'Administrativo')) <i class="bi bi-shield-lock"></i>
+                                        @elseif(str_contains($titulo, 'Combustível')) <i class="bi bi-fuel-pump"></i>
+                                        @elseif(str_contains($titulo, 'Suprimentos')) <i class="bi bi-box-seam"></i>
+                                        @elseif(str_contains($titulo, 'Recrutamento')) <i class="bi bi-person-plus"></i>
+                                        @elseif(str_contains($titulo, 'Comunicação')) <i class="bi bi-chat-dots"></i>
+                                        @else <i class="bi bi-layers"></i> @endif
+                                        {{ $titulo }}
+                                    </div>
+                                    @foreach ($perms as $permissao)
+                                        <label class="perm-item">
+                                            <input type="checkbox"
+                                                   class="create-permissao-checkbox"
+                                                   name="permissoes[]"
+                                                   value="{{ $permissao->id }}">
+                                            <span>{{ $permissao->nome }}</span>
+                                        </label>
+                                    @endforeach
                                 @endforeach
                             </div>
                         </div>
@@ -1327,14 +1363,25 @@
                             <div class="form-divider"></div>
 
                             <div class="perm-grid">
-                                @foreach ($permissoes as $permissao)
-                                    <label class="perm-item">
-                                        <input type="checkbox"
-                                               class="edit-permissao-checkbox"
-                                               name="permissoes[]"
-                                               value="{{ $permissao->id }}">
-                                        <span>{{ $permissao->nome }}</span>
-                                    </label>
+                                @foreach ($permissoesAgrupadas as $titulo => $perms)
+                                    <div class="perm-group-title">
+                                        @if(str_contains($titulo, 'Administrativo')) <i class="bi bi-shield-lock"></i>
+                                        @elseif(str_contains($titulo, 'Combustível')) <i class="bi bi-fuel-pump"></i>
+                                        @elseif(str_contains($titulo, 'Suprimentos')) <i class="bi bi-box-seam"></i>
+                                        @elseif(str_contains($titulo, 'Recrutamento')) <i class="bi bi-person-plus"></i>
+                                        @elseif(str_contains($titulo, 'Comunicação')) <i class="bi bi-chat-dots"></i>
+                                        @else <i class="bi bi-layers"></i> @endif
+                                        {{ $titulo }}
+                                    </div>
+                                    @foreach ($perms as $permissao)
+                                        <label class="perm-item">
+                                            <input type="checkbox"
+                                                   class="edit-permissao-checkbox"
+                                                   name="permissoes[]"
+                                                   value="{{ $permissao->id }}">
+                                            <span>{{ $permissao->nome }}</span>
+                                        </label>
+                                    @endforeach
                                 @endforeach
                             </div>
                         </div>

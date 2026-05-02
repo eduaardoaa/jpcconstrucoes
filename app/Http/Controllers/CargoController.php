@@ -21,18 +21,44 @@ class CargoController extends Controller
 
         if ($request->filled('busca')) {
             $busca = trim($request->busca);
-
             $query->where('nome', 'like', "%{$busca}%");
         }
 
-        $cargos = $query
-            ->orderBy('nome')
-            ->get();
+        $cargos = $query->orderBy('nome')->get();
 
-        $permissoes = Permissao::orderBy('nome')->get();
+        $allPerms = Permissao::orderBy('nome')->get();
+        
+        $grupos = [
+            'Administrativo' => ['Gerenciar usuários', 'Gerenciar cargos', 'Gerenciar obras', 'Gerenciar funcionários'],
+            'Logística / Combustível' => ['Gerenciamento de combustível', 'Controle de deslocamentos'],
+            'EPI e Suprimentos' => ['Gerenciar entregas de EPI', 'Gerenciar estoque', 'Gerenciar Produtos', 'Visualizar relatórios'],
+            'Recrutamento (RH)' => ['Gerenciar vagas e currículos'],
+            'Comunicação' => ['Gerenciar Instancias WhatsApp'],
+        ];
 
-        return view('cargos.index', compact('cargos', 'permissoes'));
+
+        $permissoesAgrupadas = [];
+        foreach ($grupos as $titulo => $nomes) {
+            $itens = $allPerms->whereIn('nome', $nomes);
+            if ($itens->count() > 0) {
+                $permissoesAgrupadas[$titulo] = $itens;
+            }
+        }
+
+        // Caso sobre alguma permissão não mapeada
+        $mapeadasIds = collect($permissoesAgrupadas)->flatten()->pluck('id');
+        $extras = $allPerms->whereNotIn('id', $mapeadasIds);
+        if ($extras->count() > 0) {
+            $permissoesAgrupadas['Outros'] = $extras;
+        }
+
+        return view('cargos.index', [
+            'cargos' => $cargos,
+            'permissoes' => $allPerms, // Mantido para compatibilidade JS se necessário
+            'permissoesAgrupadas' => $permissoesAgrupadas
+        ]);
     }
+
 
     public function store(Request $request)
     {

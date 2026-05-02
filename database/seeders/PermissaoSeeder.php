@@ -45,6 +45,11 @@ class PermissaoSeeder extends Seeder
                 'chave' => 'relatorios',
                 'descricao' => 'Acessar relatórios do sistema',
             ],
+            [
+                'nome' => 'Gerenciar vagas e currículos',
+                'chave' => 'vagas',
+                'descricao' => 'Criar vagas, visualizar candidatos e gerenciar currículos',
+            ],
         ];
 
         foreach ($permissoes as $permissao) {

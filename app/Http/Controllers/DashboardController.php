@@ -33,7 +33,7 @@ class DashboardController extends Controller
             ? Carbon::parse($request->get('data_fim'))->endOfDay()
             : now()->endOfMonth()->endOfDay();
 
-        $diasPeriodo = max(1, $dataInicio->diffInDays($dataFim) + 1);
+        $diasPeriodo = (int) $dataInicio->copy()->startOfDay()->diffInDays($dataFim->copy()->startOfDay()) + 1;
         $inicio7Dias = now()->subDays(6)->startOfDay()->toDateString();
         $fimHoje = now()->endOfDay()->toDateString();
 
