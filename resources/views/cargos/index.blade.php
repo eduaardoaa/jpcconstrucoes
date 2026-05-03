@@ -29,7 +29,7 @@
         --warning: #f59e0b;
         --warning-soft: rgba(245, 158, 11, 0.12);
         --danger: #ef4444;
-        --danger-soft: rgba(239, 68, 68, 0.12);
+        --danger-soft: rgba(239,68,68, 0.12);
         --info: #94a3b8;
         --info-soft: rgba(148, 163, 184, 0.12);
 
@@ -285,7 +285,7 @@
         position: sticky;
         top: 0;
         z-index: 1;
-        background: rgba(15, 23, 42, 0.72);
+        background: var(--neutral-2);
         color: var(--text-muted);
         font-weight: 700;
         font-size: 11.5px;

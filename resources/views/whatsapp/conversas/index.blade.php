@@ -33,6 +33,74 @@
         --wa-active: #2a3942;
         --wa-icon: #aebac1;
         --wa-group-color: #f0a500;
+        --wa-wallpaper: url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png');
+    }
+
+    .light-theme {
+        --wa-bg: #f0f2f5;
+        --wa-sidebar: #ffffff;
+        --wa-header: #f0f2f5;
+        --wa-border: #e9edef;
+        --wa-text: #111b21;
+        --wa-text-muted: #667781;
+        --wa-green: #008069;
+        --wa-blue: #027eb5;
+        --wa-bubble-in: #ffffff;
+        --wa-bubble-out: #dcf8c6;
+        --wa-active: #f5f6f6;
+        --wa-icon: #54656f;
+        --wa-group-color: #06cf9c;
+        --wa-wallpaper: url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png');
+    }
+
+    .light-theme .wa-instancia-select {
+        background: #ffffff;
+        border-color: #e9edef;
+        color: #111b21;
+    }
+
+    .light-theme .wa-search-input-group {
+        background: #f0f2f5;
+    }
+
+    .light-theme .wa-group-tag {
+        background: #e7fce3;
+        color: #1fa855;
+    }
+
+    .light-theme .unread-badge {
+        background: #25d366;
+        color: #ffffff;
+    }
+
+    .light-theme .wa-footer-composer {
+        background: #f0f2f5;
+    }
+
+    .light-theme .wa-input-wrap {
+        background: #ffffff;
+    }
+
+    .light-theme .wa-search-bar {
+        background: #ffffff;
+    }
+
+    .light-theme .wa-date-divider span {
+        background: #ffffff;
+        color: #667781;
+        box-shadow: 0 1px 1px rgba(0,0,0,0.1);
+    }
+
+    .light-theme .wa-sig-btn {
+        background: #ffffff;
+        border-color: #e9edef;
+        color: #54656f;
+    }
+
+    .light-theme .wa-sig-btn.active {
+        background: #008069;
+        color: #fff;
+        border-color: #008069;
     }
 
     .wa-wrapper {
@@ -299,7 +367,7 @@ height: calc(100vh - 125px);    display: flex;
         flex: 1;
         overflow-y: auto;
         padding: 20px 8% 10px;
-        background-image: url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png');
+        background-image: var(--wa-wallpaper);
         background-blend-mode: overlay;
         display: flex;
         flex-direction: column;
@@ -950,6 +1018,9 @@ height: calc(100vh - 125px);    display: flex;
                     <i class="bi bi-whatsapp me-2" style="color: var(--wa-green)"></i>WhatsApp
                 </h2>
                 <div class="d-flex gap-2">
+                    <button class="wa-icon-btn" title="Alternar tema" onclick="toggleTheme()">
+                        <i class="bi bi-brightness-high" id="themeIcon"></i>
+                    </button>
                     <button class="wa-icon-btn" title="Nova conversa"><i class="bi bi-chat-left-text"></i></button>
                     <button class="wa-icon-btn" title="Opções"><i class="bi bi-three-dots-vertical"></i></button>
                 </div>
@@ -2788,6 +2859,16 @@ document.addEventListener('DOMContentLoaded', function () {
             const currList = document.getElementById('waList');
             if (newList && currList && newList.innerHTML !== currList.innerHTML) {
                 currList.innerHTML = newList.innerHTML;
+                
+                // Reaplica busca se houver algo digitado
+                const searchInput = document.getElementById('searchInput');
+                if (searchInput && searchInput.value.trim() !== '') {
+                    const q = searchInput.value.toLowerCase().trim();
+                    document.querySelectorAll('.wa-chat-tile').forEach(tile => {
+                        const nome = (tile.dataset.nome || '').toLowerCase();
+                        tile.style.display = nome.includes(q) ? 'flex' : 'none';
+                    });
+                }
             }
         } catch (err) {
             console.error('Erro no polling:', err);
@@ -2802,5 +2883,32 @@ document.addEventListener('DOMContentLoaded', function () {
     // Polling a cada 500ms
     setInterval(atualizarMensagens, 500);
 });
+
+// ===== TEMA CLARO / ESCURO =====
+window.toggleTheme = function() {
+    console.log('Botão de tema clicado!');
+    const body = document.body;
+    const icon = document.getElementById('themeIcon');
+    const isLight = body.classList.toggle('light-theme');
+    
+    localStorage.setItem('wa-theme', isLight ? 'light' : 'dark');
+    
+    if (icon) {
+        if (isLight) {
+            icon.classList.replace('bi-brightness-high', 'bi-moon-stars');
+        } else {
+            icon.classList.replace('bi-moon-stars', 'bi-brightness-high');
+        }
+    }
+}
+
+// Inicializa o tema salvo
+if (localStorage.getItem('wa-theme') === 'light') {
+    document.addEventListener('DOMContentLoaded', () => {
+        document.body.classList.add('light-theme');
+        const icon = document.getElementById('themeIcon');
+        if (icon) icon.classList.replace('bi-brightness-high', 'bi-moon-stars');
+    });
+}
 </script>
 @endsection

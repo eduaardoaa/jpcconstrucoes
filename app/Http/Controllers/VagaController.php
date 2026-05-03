@@ -327,9 +327,26 @@ class VagaController extends Controller
     // ─────────────────────────────────────────────────────────
     public function toggleStatus(Vaga $vaga)
     {
-        $vaga->update([
-            'status' => $vaga->status === 'aberta' ? 'fechada' : 'aberta',
-        ]);
+        $novoStatus = $vaga->status === 'aberta' ? 'fechada' : 'aberta';
+        $eraVencida = ($vaga->data_limite && $vaga->data_limite->isPast());
+        
+        $updateData = ['status' => $novoStatus];
+
+        if ($novoStatus === 'aberta' && $eraVencida) {
+            $updateData['data_limite'] = null;
+        }
+
+        $vaga->update($updateData);
+
+        if (request()->ajax()) {
+            return response()->json([
+                'success' => true,
+                'status'  => $vaga->status,
+                'label'   => $vaga->isAberta() ? 'Aberta' : 'Fechada',
+                'vencida' => $eraVencida,
+                'message' => 'Status da vaga alterado!'
+            ]);
+        }
 
         return redirect()->route('vagas.index')
             ->with('success', 'Status da vaga alterado!');
@@ -426,5 +443,67 @@ class VagaController extends Controller
         \App\Jobs\ScanResumeJob::dispatch($candidatura);
 
         return back()->with('success', 'Análise reiniciada com sucesso!');
+    }
+
+    public function atualizarDataLimite(Request $request, Vaga $vaga)
+    {
+        $request->validate(['data_limite' => 'nullable|date']);
+        $vaga->update(['data_limite' => $request->data_limite]);
+
+        return response()->json([
+            'success' => true,
+            'data_formatada' => $vaga->data_limite ? $vaga->data_limite->format('d/m/Y') : null
+        ]);
+    }
+
+    public function gerarPerguntasIA(Request $request)
+    {
+        $request->validate([
+            'titulo'     => 'required|string',
+            'requisitos' => 'nullable|string',
+            'descricao'  => 'nullable|string',
+            'quantidade' => 'nullable|integer|min:1|max:15'
+        ]);
+
+        $qtd = $request->quantidade ?? 5;
+
+        try {
+            $apiKey = env('GEMINI_API_KEY');
+            $prompt = "Você é um recrutador técnico experiente. Com base nas informações da vaga abaixo, gere {$qtd} perguntas de triagem inteligentes.
+            
+            Vaga: {$request->titulo}
+            Requisitos: {$request->requisitos}
+            Descrição: {$request->descricao}
+
+            DIRETRIZES CRÍTICAS:
+            1. ANALISE os requisitos técnicos. Se citar Excel, peça nível ou funções específicas. Se citar softwares, faça perguntas sobre eles.
+            2. VARIE os tipos: Use 'texto' para respostas curtas, 'textarea' para experiências e 'select' para escolhas rápidas (Ex: Sim/Não ou Níveis Básico/Intermediário/Avançado).
+            3. Para o tipo 'select', você DEVE fornecer o campo 'opcoes' com as alternativas separadas por vírgula.
+            4. As perguntas devem ajudar a ELIMINAR candidatos que não atendem aos requisitos essenciais.
+
+            Retorne APENAS um JSON no formato de array de objetos:
+            [
+                {
+                    \"texto\": \"Pergunta aqui?\",
+                    \"tipo\": \"texto\" ou \"textarea\" ou \"select\",
+                    \"opcoes\": \"Opção A, Opção B, Opção C\" (obrigatório se tipo for select),
+                    \"obrigatoria\": true
+                }
+            ]";
+
+            $response = Http::withoutVerifying()->post("https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={$apiKey}", [
+                'contents' => [['parts' => [['text' => $prompt]]]],
+                'generationConfig' => ['response_mime_type' => 'application/json']
+            ]);
+
+            if ($response->successful()) {
+                $content = $response->json()['candidates'][0]['content']['parts'][0]['text'];
+                return response()->json(json_decode($content, true));
+            }
+
+            return response()->json(['error' => 'Erro na IA'], 500);
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
     }
 }

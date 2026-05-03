@@ -82,7 +82,7 @@ class WhatsappEvolutionSyncService
                     $this->buscarNomeGrupo($contato, $instancia);
                 }
             } else {
-                // Contato individual
+                // Contato individual: 'name' é o da agenda, 'pushName' é o do perfil
                 $contato = WhatsappContato::updateOrCreate(
                     [
                         'whatsapp_instancia_id' => $instancia->id,
@@ -90,7 +90,7 @@ class WhatsappEvolutionSyncService
                     ],
                     [
                         'numero'    => $numero,
-                        'nome'      => $chat['name'] ?? $chat['pushName'] ?? $numero,
+                        'nome'      => $chat['name'] ?? null,
                         'push_name' => $chat['pushName'] ?? null,
                         'foto_url'  => $chat['profilePicUrl'] ?? $chat['picture'] ?? null,
                         'is_grupo'  => false,

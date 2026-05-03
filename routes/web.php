@@ -385,6 +385,12 @@ Route::middleware(['auth', 'permissao:vagas'])->group(function () {
 
     Route::get('/vagas/candidaturas/{candidatura}/curriculo', [VagaController::class, 'downloadCurriculo'])
         ->name('vagas.candidatura.curriculo');
+
+    Route::patch('/vagas/{vaga}/data-limite', [VagaController::class, 'atualizarDataLimite'])
+        ->name('vagas.atualizar-data-limite');
+
+    Route::post('/vagas/gerar-perguntas', [VagaController::class, 'gerarPerguntasIA'])
+        ->name('vagas.gerar-perguntas');
 });
 
 /*

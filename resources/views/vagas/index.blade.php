@@ -232,9 +232,16 @@ select.vm-input{appearance:none;-webkit-appearance:none;background-image:url("da
                     <a href="{{ route('vagas.candidatos', $vaga) }}" class="vg-btn vg-btn-primary"><i class="bi bi-people"></i> Candidatos</a>
                     <button class="vg-btn vg-btn-copy" onclick="vagaCopyLink('{{ $vaga->linkPublico() }}')"><i class="bi bi-link-45deg"></i> Copiar Link</button>
                     <button class="vg-btn vg-btn-dark" onclick="openVagaEditModal({{ $vaga->id }})"><i class="bi bi-pencil"></i></button>
-                    <form method="POST" action="{{ route('vagas.toggle-status', $vaga) }}" style="margin:0">@csrf @method('PATCH')
-                        <button class="vg-btn {{ $vaga->isAberta() ? 'vg-btn-warning' : 'vg-btn-copy' }} vg-btn-icon" title="{{ $vaga->isAberta() ? 'Fechar vaga' : 'Reabrir vaga' }}"><i class="bi {{ $vaga->isAberta() ? 'bi-pause-fill' : 'bi-play-fill' }}"></i></button>
-                    </form>
+                    <button 
+                        class="vg-btn {{ $vaga->isAberta() ? 'vg-btn-warning' : 'vg-btn-copy' }} vg-btn-icon btn-toggle-vaga" 
+                        title="{{ $vaga->isAberta() ? 'Fechar vaga' : 'Reabrir vaga' }}"
+                        data-id="{{ $vaga->id }}"
+                        data-url="{{ route('vagas.toggle-status', $vaga) }}"
+                        data-status="{{ $vaga->status }}"
+                        onclick="vagaToggleStatus(this)"
+                    >
+                        <i class="bi {{ $vaga->isAberta() ? 'bi-pause-fill' : 'bi-play-fill' }}"></i>
+                    </button>
                 </div>
 
             </div>
@@ -310,7 +317,12 @@ select.vm-input{appearance:none;-webkit-appearance:none;background-image:url("da
                     <div class="vm-perguntas-wrap">
                         <div class="vm-perguntas-title"><i class="bi bi-chat-square-text-fill" style="color:#3b82f6"></i> Perguntas para o candidato</div>
                         <div id="perguntasCriar"></div>
-                        <button type="button" class="vg-btn vg-btn-dark" onclick="vagaAddPergunta('perguntasCriar','criar')" style="margin-top:6px"><i class="bi bi-plus"></i> Adicionar pergunta</button>
+                        <div style="display:flex;gap:10px;margin-top:10px">
+                            <button type="button" class="vg-btn vg-btn-dark" onclick="vagaAddPergunta('perguntasCriar','criar')"><i class="bi bi-plus"></i> Adicionar pergunta</button>
+                            <button type="button" class="vg-btn vg-btn-dark" id="btnGerarPerguntasIA" onclick="vagaGerarPerguntasIA()" style="border-color:rgba(168,85,247,.3);color:#d8b4fe">
+                                <i class="bi bi-stars"></i> Sugerir Perguntas (IA)
+                            </button>
+                        </div>
                     </div>
                 </div>
                 <div class="vm-footer" style="padding:16px 0 0;border-top:1px solid rgba(148,163,184,.12);margin-top:16px">
@@ -413,7 +425,12 @@ select.vm-input{appearance:none;-webkit-appearance:none;background-image:url("da
                             </div>
                             @endforeach
                         </div>
-                        <button type="button" class="vg-btn vg-btn-dark" onclick="vagaAddPergunta('perguntasEditar{{ $vaga->id }}','edit{{ $vaga->id }}')" style="margin-top:6px"><i class="bi bi-plus"></i> Adicionar pergunta</button>
+                        <div style="display:flex;gap:10px;margin-top:10px">
+                            <button type="button" class="vg-btn vg-btn-dark" onclick="vagaAddPergunta('perguntasEditar{{ $vaga->id }}','edit{{ $vaga->id }}')"><i class="bi bi-plus"></i> Adicionar pergunta</button>
+                            <button type="button" class="vg-btn vg-btn-dark" onclick="vagaGerarPerguntasIA({{ $vaga->id }})" id="btnGerarPerguntasIA{{ $vaga->id }}" style="border-color:rgba(168,85,247,.3);color:#d8b4fe">
+                                <i class="bi bi-stars"></i> Sugerir Perguntas (IA)
+                            </button>
+                        </div>
                     </div>
                 </div>
                 <div class="vm-footer" style="padding:16px 0 0;border-top:1px solid rgba(148,163,184,.12);margin-top:16px">
@@ -425,6 +442,29 @@ select.vm-input{appearance:none;-webkit-appearance:none;background-image:url("da
     </div>
 </div>
 @endforeach
+
+{{-- MODAL DEFINIR NOVA DATA (PARA VAGAS REABERTAS) --}}
+<div class="custom-modal" id="vagaNovaDataModal" role="dialog">
+    <div class="custom-modal-backdrop" onclick="closeVagaNovaDataModal()"></div>
+    <div class="custom-modal-dialog" style="max-width:400px">
+        <div class="custom-modal-header">
+            <div><h3>Novo Prazo</h3><p>Defina uma nova data limite para a vaga.</p></div>
+            <button class="custom-modal-close" onclick="closeVagaNovaDataModal()"><i class="bi bi-x-lg"></i></button>
+        </div>
+        <div class="custom-modal-body">
+            <input type="hidden" id="novaDataVagaId">
+            <div class="vm-form-full">
+                <label class="vm-label">Nova Data Limite</label>
+                <input type="date" id="novaDataLimiteInput" class="vm-input">
+                <p style="font-size:12px;color:#94a3b8;margin-top:10px">Deixe em branco para deixar a vaga aberta sem prazo determinado.</p>
+            </div>
+            <div class="vm-footer" style="padding:16px 0 0;margin-top:16px">
+                <button type="button" class="vg-btn vg-btn-dark" onclick="closeVagaNovaDataModal()">Agora não</button>
+                <button type="button" class="vg-btn vg-btn-primary" onclick="vagaSalvarNovaData()">Definir Prazo</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <script>
     var vagaPerguntaCounters = {};
@@ -453,6 +493,10 @@ select.vm-input{appearance:none;-webkit-appearance:none;background-image:url("da
 
     function closeVagaEditModal(vagaId) {
         closeVagaModal(document.getElementById('vagaEditModal' + vagaId));
+    }
+
+    function closeVagaNovaDataModal() {
+        closeVagaModal(document.getElementById('vagaNovaDataModal'));
     }
 
     function vagaToggleOpcoes(selectEl) {
@@ -520,6 +564,125 @@ select.vm-input{appearance:none;-webkit-appearance:none;background-image:url("da
         });
     }
 
+    async function vagaToggleStatus(btn) {
+        const vagaId = btn.dataset.id;
+        const url    = btn.dataset.url;
+        const status = btn.dataset.status;
+        const acao   = status === 'aberta' ? 'PAUSAR (fechar)' : 'REABRIR';
+        
+        if (!confirm('Deseja realmente ' + acao + ' esta vaga?')) return;
+
+        btn.disabled = true;
+        const originalIcon = btn.innerHTML;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+
+        try {
+            const resp = await fetch(url, {
+                method: 'PATCH',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                    'Accept': 'application/json'
+                }
+            });
+
+            const data = await resp.json();
+
+            if (data.success) {
+                // Atualiza o Badge no card
+                const card = btn.closest('.vg-card');
+                const badge = card.querySelector('.vg-badge');
+                if (badge) {
+                    badge.className = 'vg-badge ' + (data.status === 'aberta' ? 'vg-badge-open' : 'vg-badge-closed');
+                    badge.textContent = data.label;
+                }
+
+                // Se a vaga reaberta era vencida, abre o modal de nova data
+                if (data.status === 'aberta' && data.vencida) {
+                    document.getElementById('novaDataVagaId').value = vagaId;
+                    document.getElementById('novaDataLimiteInput').value = '';
+                    openVagaModal(document.getElementById('vagaNovaDataModal'));
+                    
+                    // Remove o texto da data antiga se houver
+                    const stats = card.querySelector('.vg-card-stats');
+                    if (stats) {
+                        const dateStat = Array.from(stats.querySelectorAll('.vg-stat')).find(s => s.innerHTML.includes('bi-calendar-event'));
+                        if (dateStat) dateStat.remove();
+                    }
+                }
+
+                // Atualiza o próprio botão
+                btn.dataset.status = data.status;
+                if (data.status === 'aberta') {
+                    btn.className = 'vg-btn vg-btn-warning vg-btn-icon btn-toggle-vaga';
+                    btn.title = 'Fechar vaga';
+                    btn.innerHTML = '<i class="bi bi-pause-fill"></i>';
+                } else {
+                    btn.className = 'vg-btn vg-btn-copy vg-btn-icon btn-toggle-vaga';
+                    btn.title = 'Reabrir vaga';
+                    btn.innerHTML = '<i class="bi bi-play-fill"></i>';
+                }
+            } else {
+                alert('Erro: ' + (data.message || 'Não foi possível alterar o status.'));
+                btn.innerHTML = originalIcon;
+            }
+        } catch (err) {
+            console.error(err);
+            alert('Erro de conexão ao tentar alterar status.');
+            btn.innerHTML = originalIcon;
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    async function vagaSalvarNovaData() {
+        const id = document.getElementById('novaDataVagaId').value;
+        const dataStr = document.getElementById('novaDataLimiteInput').value;
+        const url = "{{ url('/vagas') }}/" + id + "/data-limite";
+        const btn = event.target;
+
+        btn.disabled = true;
+        btn.textContent = 'Salvando...';
+
+        try {
+            const resp = await fetch(url, {
+                method: 'PATCH',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({ data_limite: dataStr })
+            });
+
+            const res = await resp.json();
+            if (res.success) {
+                // Se definiu uma data, adiciona de volta no card
+                if (res.data_formatada) {
+                    const btnOriginal = document.querySelector(`.btn-toggle-vaga[data-id="${id}"]`);
+                    const card = btnOriginal.closest('.vg-card');
+                    const stats = card.querySelector('.vg-card-stats');
+                    if (stats) {
+                        const div = document.createElement('div');
+                        div.className = 'vg-stat';
+                        div.innerHTML = '<i class="bi bi-calendar-event"></i> Até ' + res.data_formatada;
+                        stats.insertBefore(div, stats.children[1] || null);
+                    }
+                }
+                closeVagaNovaDataModal();
+            } else {
+                alert('Erro ao salvar data.');
+            }
+        } catch (err) {
+            console.error(err);
+            alert('Erro de conexão.');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Definir Prazo';
+        }
+    }
+
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
             closeVagaCriarModal();
@@ -529,6 +692,29 @@ select.vm-input{appearance:none;-webkit-appearance:none;background-image:url("da
         }
     });
 </script>
+
+{{-- MODAL DEFINIR NOVA DATA (PARA VAGAS REABERTAS) --}}
+<div class="custom-modal" id="vagaNovaDataModal" role="dialog">
+    <div class="custom-modal-backdrop" onclick="closeVagaNovaDataModal()"></div>
+    <div class="custom-modal-dialog" style="max-width:400px">
+        <div class="custom-modal-header">
+            <div><h3>Novo Prazo</h3><p>Defina uma nova data limite para a vaga.</p></div>
+            <button class="custom-modal-close" onclick="closeVagaNovaDataModal()"><i class="bi bi-x-lg"></i></button>
+        </div>
+        <div class="custom-modal-body">
+            <input type="hidden" id="novaDataVagaId">
+            <div class="vm-form-full">
+                <label class="vm-label">Nova Data Limite</label>
+                <input type="date" id="novaDataLimiteInput" class="vm-input">
+                <p style="font-size:12px;color:#94a3b8;margin-top:10px">Deixe em branco para deixar a vaga aberta sem prazo determinado.</p>
+            </div>
+            <div class="vm-footer" style="padding:16px 0 0;margin-top:16px">
+                <button type="button" class="vg-btn vg-btn-dark" onclick="closeVagaNovaDataModal()">Agora não</button>
+                <button type="button" class="vg-btn vg-btn-primary" onclick="vagaSalvarNovaData()">Definir Prazo</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <script>
     function vagaInitCharts() {
@@ -707,6 +893,107 @@ select.vm-input{appearance:none;-webkit-appearance:none;background-image:url("da
             btn.disabled = false;
             input.value = '';
         });
+    }
+
+    async function vagaGerarPerguntasIA(vagaId = null) {
+        const modalId = vagaId ? 'vagaEditModal' + vagaId : 'vagaCriarModal';
+        const containerId = vagaId ? 'perguntasEditar' + vagaId : 'perguntasCriar';
+        const prefix = vagaId ? 'edit' + vagaId : 'criar';
+        const btnId = vagaId ? 'btnGerarPerguntasIA' + vagaId : 'btnGerarPerguntasIA';
+
+        const modal = document.getElementById(modalId);
+        const titulo = modal.querySelector('[name="titulo"]').value.trim();
+        const requisitos = modal.querySelector('[name="requisitos"]').value.trim();
+        const descricao = modal.querySelector('[name="descricao"]').value.trim();
+
+        if (!titulo) {
+            alert('Preencha pelo menos o título da vaga para a IA ter contexto.');
+            return;
+        }
+
+        let qtd = prompt("Quantas perguntas você deseja que a IA gere?", "5");
+        if (qtd === null) return; // Cancelou
+        qtd = parseInt(qtd) || 5;
+
+        const btn = document.getElementById(btnId);
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Gerando...';
+        btn.disabled = true;
+
+        try {
+            const resp = await fetch('{{ route('vagas.gerar-perguntas') }}', {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({ titulo, requisitos, descricao, quantidade: qtd })
+            });
+
+            const perguntas = await resp.json();
+
+            if (perguntas.error) {
+                alert('Erro da IA: ' + perguntas.error);
+            } else if (Array.isArray(perguntas)) {
+                perguntas.forEach(p => {
+                    vagaAddPerguntaComDados(containerId, prefix, p);
+                });
+                alert('IA sugeriu 5 perguntas para esta vaga!');
+            }
+        } catch (err) {
+            console.error(err);
+            alert('Erro de conexão com a IA.');
+        } finally {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }
+    }
+
+    function vagaAddPerguntaComDados(containerId, prefix, data) {
+        if (!vagaPerguntaCounters[prefix]) vagaPerguntaCounters[prefix] = document.querySelectorAll('#' + containerId + ' .vm-pergunta-item').length;
+        var i = vagaPerguntaCounters[prefix]++;
+        var div = document.createElement('div');
+        div.className = 'vm-pergunta-item';
+
+        var row = document.createElement('div');
+        row.className = 'vm-pergunta-row';
+
+        var pergDiv = document.createElement('div');
+        pergDiv.innerHTML = '<label class="vm-label">Pergunta</label><input type="text" name="perguntas[' + i + '][texto]" class="vm-input" value="' + data.texto + '">';
+
+        var tipoDiv = document.createElement('div');
+        var sel = document.createElement('select');
+        sel.name = 'perguntas[' + i + '][tipo]';
+        sel.className = 'vm-input';
+        sel.setAttribute('onchange', 'vagaToggleOpcoes(this)');
+        sel.innerHTML = '<option value="texto" ' + (data.tipo==='texto'?'selected':'') + '>Texto curto</option>' +
+                        '<option value="textarea" ' + (data.tipo==='textarea'?'selected':'') + '>Texto longo</option>' +
+                        '<option value="select" ' + (data.tipo==='select'?'selected':'') + '>Opções</option>';
+        var tipoLabel = document.createElement('label');
+        tipoLabel.className = 'vm-label';
+        tipoLabel.textContent = 'Tipo';
+        tipoDiv.appendChild(tipoLabel);
+        tipoDiv.appendChild(sel);
+
+        var removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'vm-pergunta-remove';
+        removeBtn.innerHTML = '<i class="bi bi-x"></i>';
+        removeBtn.onclick = function() { div.remove(); };
+
+        row.appendChild(pergDiv);
+        row.appendChild(tipoDiv);
+        row.appendChild(removeBtn);
+
+        var opcoesDiv = document.createElement('div');
+        opcoesDiv.className = 'vm-pergunta-opcoes ' + (data.tipo === 'select' ? 'show' : '');
+        opcoesDiv.innerHTML = '<label class="vm-label">Opções (separe por vírgula)</label><input type="text" name="perguntas[' + i + '][opcoes]" class="vm-input" value="' + (data.opcoes || '') + '" placeholder="Ex: Sim, Não, Talvez"><div class="vm-hint">Cada opção separada por vírgula aparecerá como alternativa para o candidato.</div>';
+
+        div.appendChild(row);
+        div.appendChild(opcoesDiv);
+        document.getElementById(containerId).appendChild(div);
     }
 
     vagaInitCharts();

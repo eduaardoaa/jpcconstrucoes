@@ -60,16 +60,23 @@ class WhatsappWebhookController extends Controller
                 $jid    = $c['remoteJid'] ?? null;
                 $picUrl = $c['profilePicUrl'] ?? $c['profilePictureUrl'] ?? null;
                 $pName  = $c['pushName'] ?? null;
+                $name   = $c['name'] ?? null;
+
                 if (!$jid) continue;
 
                 $updates = [];
                 if ($picUrl)  $updates['foto_url']  = $picUrl;
-                // para grupos, pushName do contacts.upsert é o nome do grupo
-                if ($pName && str_contains($jid, '@g.us')) {
-                    $updates['nome']      = $pName;
-                    $updates['push_name'] = $pName;
-                } elseif ($pName) {
-                    $updates['push_name'] = $pName;
+
+                // para grupos, pushName ou name do contacts.upsert é o nome do grupo
+                if (str_contains($jid, '@g.us')) {
+                    $gName = $name ?? $pName;
+                    if ($gName) {
+                        $updates['nome']      = $gName;
+                        $updates['push_name'] = $gName;
+                    }
+                } else {
+                    if ($pName) $updates['push_name'] = $pName;
+                    if ($name)  $updates['nome']      = $name;
                 }
 
                 if (!empty($updates)) {
@@ -106,25 +113,26 @@ class WhatsappWebhookController extends Controller
                 if (!$upId) continue;
 
                 $upStatus = $upd['status'] ?? ($upd['update']['status'] ?? null);
+
+                // Tentativa de capturar edição no update
+                $editCandidate = $upd['message'] ?? $upd['update']['message'] ?? null;
+                if ($editCandidate) {
+                    $novoTexto = $this->extrairTextoProfundo($editCandidate);
+                    if ($novoTexto !== null) {
+                        WhatsappMensagem::where('whatsapp_instancia_id', $instancia->id)
+                            ->where('message_id', $upId)
+                            ->whereNull('apagada_em')
+                            ->update(['conteudo' => $novoTexto, 'editada_em' => now()]);
+                        continue;
+                    }
+                }
+
                 if ($upStatus === 'DELETED') {
                     WhatsappMensagem::where('whatsapp_instancia_id', $instancia->id)
                         ->where('message_id', $upId)
                         ->whereNull('apagada_em')
                         ->update(['apagada_em' => now(), 'conteudo' => null]);
                     continue;
-                }
-
-                // Edição: data.message.editedMessage.message.conversation
-                $editedMsgContent = $upd['message']['editedMessage']['message'] ?? null;
-                if ($editedMsgContent) {
-                    $novoTexto = $editedMsgContent['conversation']
-                              ?? ($editedMsgContent['extendedTextMessage']['text'] ?? null);
-                    if ($novoTexto !== null) {
-                        WhatsappMensagem::where('whatsapp_instancia_id', $instancia->id)
-                            ->where('message_id', $upId)
-                            ->whereNull('apagada_em')
-                            ->update(['conteudo' => $novoTexto, 'editada_em' => now()]);
-                    }
                 }
 
                 // Status de entrega/leitura
@@ -200,8 +208,12 @@ class WhatsappWebhookController extends Controller
             // Edição (type=14)
             if ($protoType === 14 && $protoKeyId) {
                 $editadoMsg = $proto['editedMessage'] ?? null;
-                $novoTexto  = $editadoMsg['conversation']
-                           ?? ($editadoMsg['extendedTextMessage']['text'] ?? null);
+                $innerMsg   = $editadoMsg['message'] ?? $editadoMsg; // Pode vir aninhado ou direto
+                
+                $novoTexto  = $innerMsg['conversation']
+                           ?? ($innerMsg['extendedTextMessage']['text'] ?? null)
+                           ?? ($innerMsg['protocolMessage']['editedMessage']['conversation'] ?? null);
+                           
                 if ($novoTexto !== null) {
                     WhatsappMensagem::where('whatsapp_instancia_id', $instancia->id)
                         ->where('message_id', $protoKeyId)
@@ -283,41 +295,37 @@ class WhatsappWebhookController extends Controller
                     $inst    = $instancia->instance_name;
                     $headers = ['apikey' => $instancia->api_key];
 
-                    $r = Http::withHeaders($headers)->timeout(6)
-                        ->post("{$base}/chat/findMessages/{$inst}", [
-                            'where' => ['key' => ['id' => $targetId]],
-                        ]);
+                    usleep(500000); // 0.5s
 
-                    Log::debug('secretEncryptedMessage findMessages', [
-                        'targetId' => $targetId,
-                        'status'   => $r->status(),
-                        'body'     => $r->body(),
-                    ]);
+                    // Tenta busca em dois formatos (algumas versões da API exigem um ou outro)
+                    $payloads = [
+                        ['where' => ['key' => ['id' => $targetId, 'remoteJid' => $remoteJid]]],
+                        ['where' => ['id' => $targetId]]
+                    ];
 
-                    if ($r->successful()) {
-                        $msgs = $r->json();
-                        // Resposta pode ser array de mensagens ou objeto com messages[]
-                        $lista = isset($msgs['messages']) ? $msgs['messages'] : (isset($msgs[0]) ? $msgs : []);
-                        foreach ($lista as $m) {
-                            $keyId = $m['key']['id'] ?? null;
-                            if ($keyId !== $targetId) continue;
-                            $msgData   = $m['message'] ?? [];
-                            $novoTexto = $msgData['conversation']
-                                      ?? ($msgData['extendedTextMessage']['text'] ?? null);
-                            if ($novoTexto !== null) {
-                                WhatsappMensagem::where('whatsapp_instancia_id', $instancia->id)
-                                    ->where('message_id', $targetId)
-                                    ->whereNull('apagada_em')
-                                    ->update(['conteudo' => $novoTexto, 'editada_em' => now()]);
+                    foreach ($payloads as $p) {
+                        $r = Http::withHeaders($headers)->timeout(5)->post("{$base}/chat/findMessages/{$inst}", $p);
+                        if ($r->successful()) {
+                            $msgs = $r->json();
+                            $lista = $msgs['messages'] ?? (isset($msgs[0]) ? $msgs : []);
+                            if (!is_array($lista) && is_array($msgs)) $lista = [$msgs]; // Único objeto
+                            
+                            foreach ($lista as $m) {
+                                if (($m['key']['id'] ?? $m['id'] ?? '') !== $targetId) continue;
+                                
+                                $novoTexto = $this->extrairTextoProfundo($m['message'] ?? $m);
+                                if ($novoTexto !== null) {
+                                    WhatsappMensagem::where('whatsapp_instancia_id', $instancia->id)
+                                        ->where('message_id', $targetId)
+                                        ->whereNull('apagada_em')
+                                        ->update(['conteudo' => $novoTexto, 'editada_em' => now()]);
+                                    return response()->json(['ok' => true]);
+                                }
                             }
-                            break;
                         }
                     }
-                } catch (\Exception $e) {
-                    Log::warning('secretEncryptedMessage: falha ao buscar texto atualizado', [
-                        'targetId' => $targetId,
-                        'erro'     => $e->getMessage(),
-                    ]);
+                } catch (\Throwable $e) {
+                    Log::debug("Erro ao recuperar edição: " . $e->getMessage());
                 }
             }
             return response()->json(['ok' => true]);
@@ -584,8 +592,9 @@ class WhatsappWebhookController extends Controller
                 $updateData
             );
 
-            // Auto-preenche nome da agenda na primeira vez que o contato não tem nome manual
-            if (!$contato->nome) {
+            // Prioriza nome da agenda se ainda não tiver nome salvo MANUALMENTE
+            // Se o 'nome' atual for igual ao 'push_name', tentamos buscar um nome melhor na agenda
+            if (!$contato->nome || ($contato->push_name && $contato->nome === $contato->push_name)) {
                 $this->tentarPreencherNomeAgenda($contato, $instancia);
             }
             if (!$contato->foto_url) {
@@ -1015,27 +1024,44 @@ class WhatsappWebhookController extends Controller
     private function tentarPreencherNomeAgenda(WhatsappContato $contato, WhatsappInstancia $instancia): void
     {
         try {
-            $resp = Http::withHeaders(['apikey' => $instancia->api_key])
-                ->timeout(4)
-                ->post(
-                    rtrim($instancia->api_url, '/') . '/contacts/fetch/' . $instancia->instance_name,
-                    ['where' => ['remoteJid' => $contato->remote_jid]]
-                );
+            $base    = rtrim($instancia->api_url, '/');
+            $inst    = $instancia->instance_name;
+            $headers = ['apikey' => $instancia->api_key];
+
+            // Tenta via /contacts/find (mais preciso para agenda sincronizada)
+            $resp = Http::withHeaders($headers)->timeout(5)
+                ->post("{$base}/chat/findContacts/{$inst}", [
+                    'where' => ['id' => $contato->remote_jid]
+                ]);
+
+            if (!$resp->successful()) {
+                // Fallback para fetch se o find falhar
+                $resp = Http::withHeaders($headers)->timeout(4)
+                    ->post("{$base}/contacts/fetch/{$inst}", [
+                        'where' => ['remoteJid' => $contato->remote_jid]
+                    ]);
+            }
 
             if (!$resp->successful()) return;
 
             $data = $resp->json();
-            // Resposta pode ser array de registros ou objeto único
-            $c    = (is_array($data) && array_is_list($data)) ? ($data[0] ?? null) : $data;
+            $c    = (is_array($data) && array_is_list($data)) ? ($data[0] ?? null) : ($data['contacts'][0] ?? $data);
             if (!$c) return;
 
+            // 'name' costuma ser o da agenda, 'verifiedName' para contas business
             $nome = $c['name'] ?? $c['verifiedName'] ?? null;
-            // Ignora se for vazio, número ou JID
+            
+            // Ignora se for o próprio JID ou apenas números
             if ($nome && !str_contains($nome, '@') && !preg_match('/^\+?\d+$/', $nome)) {
-                $contato->update(['nome' => $nome]);
-                Log::info("Nome da agenda preenchido automaticamente: {$contato->remote_jid} → {$nome}");
+                // SÓ atualiza se for diferente do que já temos (evita queries desnecessárias)
+                if ($contato->nome !== $nome) {
+                    $contato->update(['nome' => $nome]);
+                    Log::info("Nome da agenda atualizado: {$contato->remote_jid} → {$nome}");
+                }
             }
-        } catch (\Throwable) { }
+        } catch (\Throwable $e) {
+            Log::debug("Erro ao tentar preencher nome agenda: " . $e->getMessage());
+        }
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -1140,5 +1166,36 @@ class WhatsappWebhookController extends Controller
                 }
             }
         } catch (\Throwable) { }
+    }
+
+    /**
+     * Extrai o texto de uma mensagem do WhatsApp de forma recursiva.
+     * Útil para capturar edições e mensagens aninhadas.
+     */
+    private function extrairTextoProfundo($obj): ?string
+    {
+        if (!$obj || !is_array($obj)) return null;
+
+        // Prioridades comuns
+        $texto = $obj['conversation']
+              ?? $obj['text']
+              ?? $obj['extendedTextMessage']['text']
+              ?? $obj['caption']
+              ?? null;
+
+        if ($texto !== null) return $texto;
+
+        // Se não achou, vasculha em objetos conhecidos por esconder edições
+        if (isset($obj['editedMessage'])) {
+            return $this->extrairTextoProfundo($obj['editedMessage']['message'] ?? $obj['editedMessage']);
+        }
+        if (isset($obj['protocolMessage']['editedMessage'])) {
+            return $this->extrairTextoProfundo($obj['protocolMessage']['editedMessage']);
+        }
+        if (isset($obj['message'])) {
+            return $this->extrairTextoProfundo($obj['message']);
+        }
+
+        return null;
     }
 }
